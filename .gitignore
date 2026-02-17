@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment (never commit secrets)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database
+*.db
+*.db-journal
+backend/prisma/*.db
+
+# Backend
+backend/node_modules/
+backend/dist/
+backend/uploads/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Logs and cache
+*.log
+npm-debug.log*
+.cache
+.vite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE (optional; uncomment if you want to ignore)
+# .idea/
+# .vscode/
+# *.swp
+# *.swo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+.turbo

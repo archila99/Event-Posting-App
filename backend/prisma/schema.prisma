@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String
+  name            String
+  role            String    // ADMIN | ARTIST | USER
+  emailVerifiedAt DateTime? // set when user verifies email at registration
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  eventsAsArtist        Event[]                  @relation("EventArtist")
+  reservations          Reservation[]
+  tickets               Ticket[]
+  comments              EventComment[]
+  auditLogs             AuditLog[]
+  verificationCodes     VerificationCode[]
+  emailVerificationCode EmailVerificationCode?
+}
+
+model EmailVerificationCode {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  name        String
+  maxCapacity Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  events Event[]
+}
+
+model TimeSlot {
+  id        String   @id @default(cuid())
+  name      String   // e.g. "Slot A"
+  startTime String   // "13:00"
+  endTime   String   // "17:00"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events Event[]
+}
+
+model Event {
+  id           String      @id @default(cuid())
+  artistId     String
+  locationId   String
+  timeSlotId   String
+  date         String      // YYYY-MM-DD
+  capacity     Int         // fixed at creation, must be <= location.maxCapacity
+  status       String      @default("APPROVED") // APPROVED | CANCELLED (artist posts when slot free)
+  title        String?
+  description  String?
+  imageUrl     String?     // optional event photo URL
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  cancelledAt DateTime?
+
+  artist        User          @relation("EventArtist", fields: [artistId], references: [id])
+  location      Location      @relation(fields: [locationId], references: [id])
+  timeSlot      TimeSlot      @relation(fields: [timeSlotId], references: [id])
+  reservations Reservation[]
+  tickets       Ticket[]
+  comments      EventComment[]
+
+  @@unique([locationId, date, timeSlotId])
+  @@index([artistId, date])
+  @@index([date, status])
+}
+
+model EventComment {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  parentId  String?
+  content   String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  parent  EventComment?  @relation("EventCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies EventComment[] @relation("EventCommentReplies")
+
+  @@index([eventId, createdAt])
+  @@index([userId, createdAt])
+  @@index([parentId])
+}
+
+model Reservation {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  quantity  Int      // 1 or 2
+  status    String   @default("ACTIVE") // ACTIVE | EXPIRED | CONVERTED
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event             Event             @relation(fields: [eventId], references: [id])
+  user              User              @relation(fields: [userId], references: [id])
+  tickets           Ticket[]
+  verificationCodes VerificationCode[]
+}
+
+model Ticket {
+  id             String    @id @default(cuid())
+  eventId        String
+  reservationId  String?
+  userId         String?   // set when sold
+  status         String    @default("RESERVED") // RESERVED | SOLD | REFUNDED | EXPIRED
+  purchasedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id])
+  reservation  Reservation? @relation(fields: [reservationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+}
+
+model VerificationCode {
+  id             String   @id @default(cuid())
+  userId         String
+  reservationId  String   @unique
+  code           String   // 6-digit
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id])
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   // e.g. RESERVATION_CREATED, PURCHASE, CAPACITY_CHANGE
+  entityType String   // Event, Reservation, Ticket, Location, etc.
+  entityId   String
+  details    String?  // JSON or text
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}

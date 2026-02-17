@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Instagram-like: bright, white surfaces + blue primary */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 204 100% 48%; /* #0095F6 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 76% 36%;
+    --error: 0 84.2% 60.2%;
+    --border: 0 0% 86%;
+    --input: 0 0% 86%;
+    --ring: 204 100% 48%;
+    --radius: 10px;
+  }
+
+  .dark {
+    /* Instagram-like dark mode */
+    --background: 0 0% 6%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 204 100% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 70% 45%;
+    --error: 0 84.2% 60.2%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 204 100% 48%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  a {
+    @apply text-primary no-underline hover:underline underline-offset-4;
+  }
+}
+
+/* Compatibility layer while pages migrate to shadcn components */
+@layer components {
+  .page-header {
+    @apply mb-8;
+  }
+  .page-header h1 {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  .page-header p {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm p-6;
+  }
+
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+  .btn-danger {
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+  .btn-sm {
+    @apply h-9 px-3;
+  }
+
+  .form-group {
+    @apply space-y-2;
+  }
+  .form-group label {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    @apply w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
+  .grid {
+    display: grid;
+    gap: 1rem;
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 640px) {
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1024px) {
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold;
+  }
+  .badge-approve { @apply border-transparent bg-emerald-600/15 text-emerald-700 dark:text-emerald-400; }
+  .badge-cancel { @apply border-transparent bg-muted text-muted-foreground; }
+  .badge-pending { @apply border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400; }
+  .badge-reject { @apply border-transparent bg-destructive/10 text-red-700 dark:text-red-400; }
+  .badge-active { @apply border-transparent bg-emerald-600/15 text-emerald-700 dark:text-emerald-400; }
+  .badge-expired { @apply border-transparent bg-muted text-muted-foreground; }
+  .badge-sold { @apply border-transparent bg-primary/15 text-primary; }
+
+  .text-message-error { color: hsl(var(--error)); }
+  .text-message-success { color: hsl(var(--success)); }
+}
