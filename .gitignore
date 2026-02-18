@@ -5,13 +5,13 @@ node_modules/
 dist/
 build/
 
-# Environment (never commit secrets)
+# Environment (never commit secrets; DB URL and JWT_SECRET live here)
 .env
 .env.local
 .env.*.local
 !.env.example
 
-# Database
+# Database (SQLite leftovers; project uses PostgreSQL)
 *.db
 *.db-journal
 backend/prisma/*.db
@@ -35,7 +35,7 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# IDE (optional; uncomment if you want to ignore)
+# IDE (optional; uncomment to ignore)
 # .idea/
 # .vscode/
 # *.swp
@@ -48,3 +48,6 @@ coverage/
 # Misc
 *.tgz
 .turbo
+pnpm-debug.log*
+.yarn/
+.yarnrc.yml

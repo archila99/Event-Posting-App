@@ -151,7 +151,7 @@ export default function EventDetail() {
             <span className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-2">
-            {user && (
+            {user && c.userId !== user.id && (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"

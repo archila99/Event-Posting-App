@@ -96,9 +96,12 @@ eventsRouter.post(
     if (event.status !== "APPROVED") return res.status(400).json({ error: "Comments are only allowed on approved events" });
 
     if (parsed.data.parentId) {
-      const parent = await prisma.eventComment.findUnique({ where: { id: parsed.data.parentId }, select: { id: true, eventId: true } });
+      const parent = await prisma.eventComment.findUnique({ where: { id: parsed.data.parentId }, select: { id: true, eventId: true, userId: true } });
       if (!parent || parent.eventId !== eventId) {
         return res.status(400).json({ error: "Invalid parent comment" });
+      }
+      if (parent.userId === req.user!.userId) {
+        return res.status(403).json({ error: "You cannot reply to your own comment" });
       }
     }
 

@@ -10,7 +10,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express, TypeScript, Prisma (SQLite)
+- **Backend**: Node.js, Express, TypeScript, Prisma (PostgreSQL)
 - **Frontend**: React, Vite, TypeScript, React Router, Tailwind CSS
 - **Auth**: JWT; role-based access; 20-minute session limit; one-time email verification at registration
 
@@ -18,6 +18,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 
 - Node.js 18+
 - npm (or yarn)
+- PostgreSQL (create a database, e.g. `ticket_book`, and set `DATABASE_URL` in `backend/.env`)
 
 ## Installation
 
@@ -44,7 +45,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
    cp backend/.env.example backend/.env
    ```
 
-   Edit `backend/.env`. For local dev you can keep the default `DATABASE_URL="file:./dev.db"` and set `JWT_SECRET` to any string. Optional: set SMTP vars for verification/purchase emails (see [Email](#email) below).
+   Edit `backend/.env`. Set `DATABASE_URL` to your PostgreSQL connection string (see [Environment](#environment)) and `JWT_SECRET`. Optional: set SMTP vars for verification/purchase emails (see [Email](#email) below).
 
 4. **Create database and seed**
 
@@ -74,7 +75,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 | `npm run build`    | Build backend and frontend           |
 | `npm run db:push`  | Apply Prisma schema to DB            |
 | `npm run db:seed`  | Seed admin, artist, user, slots, locations |
-| `npm run db:studio`   | Open Prisma Studio (run from `backend`) |
+| `npm run db:studio`   | Open Prisma Studio (DB GUI)             |
 
 ## Seed Accounts
 
@@ -92,7 +93,7 @@ The seed also creates time slots (Slot A, Slot B) and locations (London Stadium,
 
 Backend reads `backend/.env`. Copy from `backend/.env.example`. Main variables:
 
-- `DATABASE_URL` – SQLite path, e.g. `file:./dev.db`
+- `DATABASE_URL` – PostgreSQL connection string, e.g. `postgresql://user:password@localhost:5432/ticket_book`
 - `JWT_SECRET` – Secret for JWT signing (use a strong value in production)
 - `JWT_EXPIRES_IN` – Session lifetime, e.g. `20m`, `1h`, `24h`
 - `PORT` – Backend port (default `3001`)
@@ -122,6 +123,11 @@ If SMTP is not configured, the backend logs verification codes to the console so
 - Event capacity is fixed at creation (≤ location max); admin can override.
 - Email is verified once at registration; verified users can confirm purchase without a code for later reservations.
 - Session limit (e.g. 20 minutes) applies to all roles.
+- Comments: users can reply to others’ comments but not to their own.
+
+## Version control
+
+Do not commit `backend/.env` (it is in `.gitignore`). Use `backend/.env.example` as a template. After cloning, copy it to `backend/.env` and set `DATABASE_URL` and `JWT_SECRET`.
 
 ## License
 
