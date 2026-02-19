@@ -125,9 +125,33 @@ If SMTP is not configured, the backend logs verification codes to the console so
 - Session limit (e.g. 20 minutes) applies to all roles.
 - Comments: users can reply to others’ comments but not to their own.
 
-## Version control
+## Load testing (k6 + Grafana)
 
-Do not commit `backend/.env` (it is in `.gitignore`). Use `backend/.env.example` as a template. After cloning, copy it to `backend/.env` and set `DATABASE_URL` and `JWT_SECRET`.
+Concurrent load tests use [k6](https://k6.io/) with optional metrics in Grafana. See **[k6/README.md](k6/README.md)** for:
+
+- Installing k6 and running `smoke.js` / `load.js`
+- Sending results to Grafana (Grafana Cloud k6 or self-hosted InfluxDB + Grafana)
+- Tuning VUs, duration, and thresholds
+
+## Pushing to GitHub
+
+1. **Ensure nothing secret is committed**  
+   `backend/.env` is in `.gitignore` — never commit it. Only `backend/.env.example` (no real secrets) should be in the repo.
+
+2. **Initialize and push** (if the repo is not yet on GitHub):
+   ```bash
+   git init
+   git add .
+   git status   # confirm backend/.env does not appear
+   git commit -m "Initial commit: Ticket Book app"
+   git branch -M main
+   git remote add origin https://github.com/YOUR_USERNAME/Ticket_Book.git
+   git push -u origin main
+   ```
+   Replace `YOUR_USERNAME` with your GitHub username (or your org and repo URL).
+
+3. **After someone clones**  
+   They run `cp backend/.env.example backend/.env`, set `DATABASE_URL` and `JWT_SECRET`, then `npm run db:push` and `npm run db:seed`.
 
 ## License
 

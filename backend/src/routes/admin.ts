@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { Role } from "../types.js";
 import { auditLog } from "../lib/audit.js";
-import { sendEventCancellationEmail } from "../lib/email.js";
+import { sendEventCancellationEmail, sendTicketRefundEmail } from "../lib/email.js";
 export const adminRouter = Router();
 const admin = authMiddleware;
 const onlyAdmin = requireRole(Role.ADMIN);
@@ -181,7 +181,20 @@ adminRouter.post(
   admin,
   onlyAdmin,
   async (req: express.Request & { user?: { userId: string } }, res) => {
-    const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: req.params.id },
+      include: {
+        event: {
+          select: {
+            title: true,
+            date: true,
+            location: { select: { name: true } },
+            timeSlot: { select: { name: true, startTime: true, endTime: true } },
+          },
+        },
+        user: { select: { email: true } },
+      },
+    });
     if (!ticket) return res.status(404).json({ error: "Ticket not found" });
     if (ticket.status !== "SOLD") return res.status(400).json({ error: "Only SOLD tickets can be refunded" });
     await prisma.ticket.update({
@@ -189,6 +202,20 @@ adminRouter.post(
       data: { status: "REFUNDED" },
     });
     await auditLog("TICKET_REFUNDED", "Ticket", ticket.id, req.user?.userId);
+
+    if (ticket.user?.email) {
+      const eventInfo = {
+        title: ticket.event.title,
+        date: ticket.event.date,
+        locationName: ticket.event.location.name,
+        timeSlotName: ticket.event.timeSlot.name,
+        timeSlotRange: `${ticket.event.timeSlot.startTime}–${ticket.event.timeSlot.endTime}`,
+      };
+      await sendTicketRefundEmail(ticket.user.email, eventInfo).catch((err) =>
+        console.error("[Refund] Failed to send refund email to", ticket.user?.email, err)
+      );
+    }
+
     return res.json({ message: "Ticket refunded" });
   }
 );

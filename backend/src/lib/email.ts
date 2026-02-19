@@ -78,6 +78,39 @@ export async function sendEventCancellationEmail(
   });
 }
 
+/** Send ticket refund notification (admin refunded this ticket). If SMTP not configured, logs to console. */
+export async function sendTicketRefundEmail(
+  toEmail: string,
+  eventInfo: { title: string | null; date: string; locationName: string; timeSlotName: string; timeSlotRange?: string }
+): Promise<void> {
+  const title = eventInfo.title || "Event";
+  const when = `${eventInfo.date} at ${eventInfo.locationName} (${eventInfo.timeSlotName}${eventInfo.timeSlotRange ? `, ${eventInfo.timeSlotRange}` : ""})`;
+  const subject = `Ticket refunded: ${title} on ${eventInfo.date}`;
+  const text = `Your ticket for "${title}" scheduled for ${when} has been refunded by the administrator.\n\nIf you have any questions, please contact support.`;
+  const html = `<p>Your ticket for <strong>${escapeHtml(title)}</strong> scheduled for ${escapeHtml(when)} has been refunded by the administrator.</p><p>If you have any questions, please contact support.</p>`;
+
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    console.log("[Email not configured] Ticket refund to", toEmail, ":", subject);
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
+  });
+
+  await transporter.sendMail({
+    from: EMAIL_FROM || SMTP_USER,
+    to: toEmail,
+    subject,
+    text,
+    html,
+  });
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
