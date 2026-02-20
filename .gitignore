@@ -12,6 +12,7 @@ build/
 .env.*.local
 !.env.example
 backend/.env
+.env.deploy
 
 # Database (SQLite leftovers; project uses PostgreSQL)
 *.db

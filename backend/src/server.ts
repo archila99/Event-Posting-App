@@ -10,15 +10,28 @@ export async function startServer() {
   const uploadsDir = path.join(__dirname, "..", "uploads");
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const app = createApp({ uploadsDir });
-  const PORT = process.env.PORT || 3001;
+  const frontendDir =
+    process.env.NODE_ENV === "production"
+      ? path.resolve(__dirname, "..", "public")
+      : undefined;
+  const hasFrontend = frontendDir && fs.existsSync(frontendDir);
+  if (frontendDir && !hasFrontend) {
+    console.warn("[server] Frontend dir not found, serving API only:", frontendDir);
+  }
+  const app = createApp({
+    uploadsDir,
+    frontendDir: hasFrontend ? frontendDir : undefined,
+  });
+  const PORT = Number(process.env.PORT) || 3001;
 
   startReservationExpiryJob();
 
-  await ensureDefaultLocationsAndSlots();
-
-  app.listen(PORT, () => {
-    console.log(`Ticket Book API running on http://localhost:${PORT}`);
+  // Listen immediately so Cloud Run sees the container as ready (then run DB init in background)
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Ticket Book API running on port ${PORT}`);
+    ensureDefaultLocationsAndSlots().catch((err) =>
+      console.error("[ensureDefaults]", err)
+    );
   });
 }
 

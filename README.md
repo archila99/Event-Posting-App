@@ -133,6 +133,131 @@ Concurrent load tests use [k6](https://k6.io/) with optional metrics in Grafana.
 - Sending results to Grafana (Grafana Cloud k6 or self-hosted InfluxDB + Grafana)
 - Tuning VUs, duration, and thresholds
 
+## Deploy to Google Cloud Run (push from local)
+
+You can build and deploy in one step from your machine. The app runs as a single container (backend + frontend) on [Cloud Run](https://cloud.google.com/run).
+
+### Prerequisites
+
+- [Google Cloud SDK (gcloud)](https://cloud.google.com/sdk/docs/install) installed and logged in: `gcloud auth login`
+- A Google Cloud project: `gcloud config set project YOUR_PROJECT_ID`
+- APIs enabled: `gcloud services enable run.googleapis.com cloudbuild.googleapis.com`
+- A **PostgreSQL database** (e.g. [Cloud SQL](https://cloud.google.com/sql/docs/postgres)) with a database created. Note the connection name or connection string for `DATABASE_URL`.
+
+### Deploy from local
+
+1. **Set environment variables for Cloud Run**  
+   You will pass secrets/env at deploy time. Minimum:
+   - `DATABASE_URL` – PostgreSQL URL (e.g. Cloud SQL: `postgresql://user:pass@/dbname?host=/cloudsql/CONNECTION_NAME` for Unix socket, or public IP URL).
+   - `JWT_SECRET` – A strong random string for signing JWTs.
+
+2. **Deploy (build on Google Cloud, then run)**  
+   From the repo root:
+   ```bash
+   gcloud run deploy ticket-book \
+     --source . \
+     --region YOUR_REGION \
+     --allow-unauthenticated \
+     --set-env-vars "NODE_ENV=production" \
+     --set-env-vars "JWT_SECRET=your-jwt-secret" \
+     --set-env-vars "DATABASE_URL=postgresql://user:pass@host:5432/dbname"
+   ```
+   Replace `YOUR_REGION` (e.g. `us-central1`), `JWT_SECRET`, and `DATABASE_URL` with your values. For Cloud SQL with a private connection, use the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-run) or a connection string that Cloud Run supports (e.g. Unix socket with `/cloudsql/CONNECTION_NAME`).
+
+3. **First-time database setup**  
+   Run migrations and seed once (from your machine or Cloud Shell, with network access to the DB):
+   ```bash
+   cd backend && DATABASE_URL="your-production-db-url" npx prisma db push
+   DATABASE_URL="your-production-db-url" npx prisma db seed
+   ```
+   Or use a one-off Cloud Run job / Cloud Build step that runs these commands against the same `DATABASE_URL`.
+
+4. **Optional: use Secret Manager**  
+   Store secrets in [Secret Manager](https://cloud.google.com/secret-manager), then reference them in Cloud Run:
+   ```bash
+   gcloud run deploy ticket-book --source . --region YOUR_REGION \
+     --set-secrets "DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest"
+   ```
+
+After deployment, Cloud Run prints the service URL. Open it in a browser to use the app. The container listens on `PORT` (default 8080), which Cloud Run sets automatically.
+
+### Example: deploy with project eventora (europe-west2 + Cloud SQL)
+
+You have:
+
+- **Project:** `eventora-ticketing-app`
+- **Region:** `europe-west2`
+- **Cloud SQL instance:** `eventora-postgres`
+- **Database:** `eventora_db`
+
+**1. Set your project and ensure APIs are enabled:**
+
+```bash
+gcloud config set project eventora-ticketing-app
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com sqladmin.googleapis.com
+```
+
+**2. Create a database user** (if you don’t have one yet) and note the password:
+
+```bash
+gcloud sql users set-password postgres --instance=eventora-postgres --password=YOUR_DB_PASSWORD
+# Or create a dedicated user: gcloud sql users create YOUR_USER --instance=eventora-postgres --password=YOUR_PASSWORD
+```
+
+**3. Run schema and seed once** (use the instance’s public IP or connect via Cloud SQL Proxy). Get the instance IP:
+
+```bash
+gcloud sql instances describe eventora-postgres --format='value(ipAddresses[0].ipAddress)'
+```
+
+Then from your machine (with the IP above):
+
+```bash
+cd backend
+DATABASE_URL="postgresql://postgres:YOUR_DB_PASSWORD@INSTANCE_IP:5432/eventora_db" npx prisma db push
+DATABASE_URL="postgresql://postgres:YOUR_DB_PASSWORD@INSTANCE_IP:5432/eventora_db" npx prisma db seed
+```
+
+**4. Deploy to Cloud Run** (from repo root). Cloud Run connects to Cloud SQL via the Unix socket, so use this `DATABASE_URL` format:
+
+```bash
+gcloud run deploy ticket-book \
+  --source . \
+  --project eventora-ticketing-app \
+  --region europe-west2 \
+  --allow-unauthenticated \
+  --add-cloudsql-instances eventora-ticketing-app:europe-west2:eventora-postgres \
+  --set-env-vars "NODE_ENV=production" \
+  --set-env-vars "JWT_SECRET=CHANGE_ME_STRONG_SECRET" \
+  --set-env-vars "DATABASE_URL=postgresql://postgres:YOUR_DB_PASSWORD@/eventora_db?host=/cloudsql/eventora-ticketing-app:europe-west2:eventora-postgres"
+```
+
+Replace `YOUR_DB_PASSWORD` and `CHANGE_ME_STRONG_SECRET` with your real values. Optionally add `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` with `--set-env-vars` for production email.
+
+When the deploy finishes, open the printed service URL in your browser.
+
+**Or use the shell scripts (all-in-one from repo root):**
+
+1. **One-time: create a secrets file** (not committed):
+   ```bash
+   cp .env.deploy.example .env.deploy
+   # Edit .env.deploy and set DB_PASSWORD and JWT_SECRET (and optionally INSTANCE_IP for DB setup).
+   ```
+
+2. **One-time: apply schema and seed the database:**
+   ```bash
+   chmod +x deploy-db-setup.sh
+   ./deploy-db-setup.sh
+   ```
+   This uses `INSTANCE_IP` from `.env.deploy` or auto-detects it.
+
+3. **Deploy (or redeploy) to Cloud Run:**
+   ```bash
+   chmod +x deploy.sh
+   ./deploy.sh
+   ```
+   Reads project, region, instance, and secrets from `.env.deploy` and runs `gcloud run deploy`.
+
 ## Pushing to GitHub
 
 1. **Ensure nothing secret is committed**  

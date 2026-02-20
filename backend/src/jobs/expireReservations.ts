@@ -28,6 +28,8 @@ async function expireReservations() {
 }
 
 export function startReservationExpiryJob() {
-  setInterval(expireReservations, INTERVAL_MS);
-  expireReservations();
+  setInterval(() => {
+    expireReservations().catch((err) => console.error("[expireReservations]", err));
+  }, INTERVAL_MS);
+  expireReservations().catch((err) => console.error("[expireReservations] initial run", err));
 }

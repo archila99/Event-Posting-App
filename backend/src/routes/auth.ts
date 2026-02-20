@@ -69,33 +69,39 @@ authRouter.post("/register", async (req, res, next) => {
       verificationRequired: true,
     });
   } catch (e) {
+    console.error("[register] error:", e instanceof Error ? e.message : e);
     next(e);
   }
 });
 
-authRouter.post("/login", async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { email, password } = parsed.data;
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.deletedAt) return res.status(401).json({ error: "Invalid credentials" });
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
-  const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role } as AuthPayload,
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
-  return res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
-    },
-    token,
-  });
+authRouter.post("/login", async (req, res, next) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { email, password } = parsed.data;
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.deletedAt) return res.status(401).json({ error: "Invalid credentials" });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role } as AuthPayload,
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    return res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
+      },
+      token,
+    });
+  } catch (e) {
+    console.error("[login] error:", e instanceof Error ? e.message : e);
+    next(e);
+  }
 });
 
 authRouter.post("/verify-email", authMiddleware, async (req: express.Request & { user?: AuthPayload }, res) => {
