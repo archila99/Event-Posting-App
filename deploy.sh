@@ -52,7 +52,8 @@ urlencode() {
   printf '%s' "$o"
 }
 DB_PASS_ENCODED=$(urlencode "$DB_PASSWORD")
-DATABASE_URL_SOCKET="postgresql://${DB_USER}:${DB_PASS_ENCODED}@/${DB_NAME}?host=/cloudsql/${CONNECTION_NAME}"
+# Prisma requires a non-empty host; use localhost (ignored when using ?host= socket path)
+DATABASE_URL_SOCKET="postgresql://${DB_USER}:${DB_PASS_ENCODED}@localhost/${DB_NAME}?host=/cloudsql/${CONNECTION_NAME}"
 
 # Cloud Run URL for CORS (format: https://SERVICE-PROJECT_NUMBER.REGION.run.app)
 PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT" --format='value(projectNumber)' 2>/dev/null || true)

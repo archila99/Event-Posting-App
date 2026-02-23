@@ -12,7 +12,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 
 - **Backend**: Node.js, Express, TypeScript, Prisma (PostgreSQL)
 - **Frontend**: React, Vite, TypeScript, React Router, Tailwind CSS
-- **Auth**: JWT; role-based access; 20-minute session limit; one-time email verification at registration
+- **Auth**: JWT; role-based access; 7-day persisted session; two-step registration (register → email with 6-digit code → verify → account created). Login only after email is verified.
 
 ## Prerequisites
 
@@ -77,6 +77,8 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 | `npm run db:seed`  | Seed admin, artist, user, slots, locations |
 | `npm run db:studio`   | Open Prisma Studio (DB GUI)             |
 
+From `backend/`: `npm run clear-auth` clears pending registrations and verification codes (does not delete users). Use Prisma Studio or SQL to remove test users.
+
 ## Seed Accounts
 
 After running `npm run db:seed`:
@@ -95,22 +97,22 @@ Backend reads `backend/.env`. Copy from `backend/.env.example`. Main variables:
 
 - `DATABASE_URL` – PostgreSQL connection string, e.g. `postgresql://user:password@localhost:5432/ticket_book`
 - `JWT_SECRET` – Secret for JWT signing (use a strong value in production)
-- `JWT_EXPIRES_IN` – Session lifetime, e.g. `20m`, `1h`, `24h`
+- `JWT_EXPIRES_IN` – Session lifetime (default `7d` so users stay logged in; use `20m` for short sessions)
 - `PORT` – Backend port (default `3001`)
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
 
 ### Email
 
-For verification and purchase emails, set SMTP variables in `backend/.env` (see `backend/.env.example`). Example for Gmail:
+Verification and other emails use **SMTP** (e.g. Gmail).
 
-1. Use a [Gmail App Password](https://myaccount.google.com/apppasswords) (not your normal password).
-2. Set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`.
+- Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and optionally `EMAIL_FROM` in `backend/.env`.
+- For Gmail: use an [App Password](https://myaccount.google.com/apppasswords) (not your normal password). Use `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`.
 
-If SMTP is not configured, the backend logs verification codes to the console so you can still complete flows in dev.
+Users receive a 6-digit code by email and enter it on the verification screen; the code is not shown on the frontend. Resend is available after a 60-second cooldown. Optional: set `INCLUDE_DEV_CODE=true` in `backend/.env` to include the code in the register API response (e.g. for local testing when email does not arrive); the frontend never displays it.
 
 ## API Overview
 
-- **Auth**: `POST /api/auth/register` (role: USER or ARTIST), `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/verify-email`
+- **Auth**: `POST /api/auth/register` (returns message; no user until verified), `POST /api/auth/verify-email` (email + code → user + token), `POST /api/auth/resend-verification-code`, `POST /api/auth/login`, `GET /api/auth/me`
 - **Public**: `GET /api/locations`, `GET /api/time-slots`, `GET /api/events` (optional `?fromDate=`, `?status=`), `GET /api/events/:id`
 - **Artist**: `POST /api/events`, `GET /api/events/my/requests`
 - **User**: `POST /api/reservations`, `GET /api/reservations/my`, `POST /api/tickets/send-verification-code/:id`, `POST /api/tickets/purchase/:id`, `GET /api/tickets/my`
@@ -121,8 +123,8 @@ If SMTP is not configured, the backend logs verification codes to the console so
 
 - Max 2 tickets per user per event. Reservations expire after 10 minutes.
 - Event capacity is fixed at creation (≤ location max); admin can override.
-- Email is verified once at registration; verified users can confirm purchase without a code for later reservations.
-- Session limit (e.g. 20 minutes) applies to all roles.
+- Registration is two-step: submit email/name/password → receive 6-digit code by email → enter code to create account. Login only for verified users. Verified users can confirm purchase without a code for later reservations.
+- Session is persisted for 7 days (configurable via `JWT_EXPIRES_IN`) so users stay logged in.
 - Comments: users can reply to others’ comments but not to their own.
 
 ## Load testing (k6 + Grafana)
@@ -261,7 +263,7 @@ When the deploy finishes, open the printed service URL in your browser.
 ## Pushing to GitHub
 
 1. **Ensure nothing secret is committed**  
-   `backend/.env` is in `.gitignore` — never commit it. Only `backend/.env.example` (no real secrets) should be in the repo.
+   `.gitignore` excludes `backend/.env`, `.env.deploy`, `.cursor/`, and build artifacts. Only `backend/.env.example` (and `.env.deploy.example` if present) should be in the repo — no real secrets.
 
 2. **Initialize and push** (if the repo is not yet on GitHub):
    ```bash

@@ -10,12 +10,20 @@ export default function ArtistDashboard() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
-  const refresh = () => {
-    events.myEvents().then(setList).catch(() => setList([])).finally(() => setLoading(false));
+  const refresh = (signal?: AbortSignal) => {
+    events
+      .myEvents(signal)
+      .then(setList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setList([]);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    refresh();
+    const ac = new AbortController();
+    refresh(ac.signal);
+    return () => ac.abort();
   }, []);
 
   return (

@@ -1,7 +1,7 @@
 import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { authMiddleware } from "../middleware/auth.js";
+import { authMiddleware, requireEmailVerified } from "../middleware/auth.js";
 import { auditLog } from "../lib/audit.js";
 import { MAX_TICKETS_PER_USER_PER_EVENT, MIN_TICKETS_PER_RESERVATION, RESERVATION_EXPIRY_MINUTES } from "../constants.js";
 
@@ -13,6 +13,9 @@ const createSchema = z.object({
 export const reservationsRouter = Router();
 
 reservationsRouter.use(authMiddleware);
+reservationsRouter.use((req, res, next) => {
+  void requireEmailVerified(req, res, next).catch(next);
+});
 
 reservationsRouter.get("/my", async (req: express.Request & { user?: { userId: string } }, res) => {
   const list = await prisma.reservation.findMany({

@@ -176,7 +176,7 @@ eventsRouter.get(
   requireRole(Role.ARTIST),
   async (req: express.Request & { user?: { userId: string } }, res) => {
     const list = await prisma.event.findMany({
-      where: { artistId: req.user!.userId },
+      where: { artistId: req.user!.userId, status: "APPROVED" },
       include: {
         artist: { select: { id: true, name: true, email: true } },
         location: { select: { id: true, name: true } },

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { prisma } from "../lib/prisma.js";
 import type { Role } from "../types.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret";
@@ -23,6 +24,22 @@ export function authMiddleware(req: Request & { user?: AuthPayload }, res: Respo
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
+}
+
+/** Use after authMiddleware. Returns 403 with VERIFICATION_REQUIRED if user has not verified email. */
+export async function requireEmailVerified(req: Request & { user?: AuthPayload }, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.userId },
+    select: { emailVerifiedAt: true },
+  });
+  if (!user?.emailVerifiedAt) {
+    return res.status(403).json({
+      error: "Email verification required",
+      code: "VERIFICATION_REQUIRED",
+    });
+  }
+  next();
 }
 
 export function requireRole(...roles: string[]) {

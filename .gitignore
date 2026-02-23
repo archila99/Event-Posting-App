@@ -1,4 +1,5 @@
 # Safe to push to GitHub: secrets and build artifacts are ignored.
+
 # Dependencies
 node_modules/
 
@@ -33,6 +34,9 @@ frontend/dist/
 npm-debug.log*
 .cache
 .vite
+
+# Cursor / IDE
+.cursor/
 
 # OS
 .DS_Store

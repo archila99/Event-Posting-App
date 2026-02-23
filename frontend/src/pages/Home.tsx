@@ -17,19 +17,22 @@ export default function Home() {
   const [connectionError, setConnectionError] = useState(false);
 
   useEffect(() => {
+    const ac = new AbortController();
     setConnectionError(false);
     events
-      .list({ status: "APPROVED", ...(dateFilter ? { fromDate: dateFilter } : {}) })
+      .list({ status: "APPROVED", ...(dateFilter ? { fromDate: dateFilter } : {}) }, ac.signal)
       .then((data) => {
         setList(data);
         setConnectionError(false);
       })
       .catch((err) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
         setList([]);
-        const msg = String(err?.message ?? err).toLowerCase();
-        setConnectionError(msg.includes("failed to fetch") || msg.includes("network") || err?.name === "TypeError");
+        const msg = String((err as Error)?.message ?? err).toLowerCase();
+        setConnectionError(msg.includes("failed to fetch") || msg.includes("network") || (err as Error)?.name === "TypeError");
       })
       .finally(() => setLoading(false));
+    return () => ac.abort();
   }, [dateFilter]);
 
   return (

@@ -24,24 +24,34 @@ export default function EventDetail() {
 
   useEffect(() => {
     if (!id) return;
-    events.get(id).then(setEvent).catch(() => setEvent(null)).finally(() => setLoading(false));
+    const ac = new AbortController();
+    events
+      .get(id, ac.signal)
+      .then(setEvent)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setEvent(null);
+      })
+      .finally(() => setLoading(false));
+    return () => ac.abort();
   }, [id]);
 
-  const refreshComments = async () => {
+  const refreshComments = (signal?: AbortSignal) => {
     if (!id) return;
     setLoadingComments(true);
-    try {
-      const list = await comments.list(id);
-      setCommentList(list);
-    } catch {
-      setCommentList([]);
-    } finally {
-      setLoadingComments(false);
-    }
+    comments
+      .list(id, signal)
+      .then(setCommentList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setCommentList([]);
+      })
+      .finally(() => setLoadingComments(false));
   };
 
   useEffect(() => {
-    refreshComments();
+    if (!id) return;
+    const ac = new AbortController();
+    refreshComments(ac.signal);
+    return () => ac.abort();
   }, [id]);
 
   const handleReserve = async () => {

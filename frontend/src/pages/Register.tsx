@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../api";
 import type { Role } from "../api";
@@ -18,23 +18,40 @@ export default function Register() {
   const [verifyCode, setVerifyCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [emailSent, setEmailSent] = useState(true);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  const { refresh, logout } = useAuth();
+
+  useEffect(() => {
+    logout();
+  }, [logout]);
+
+  useEffect(() => {
+    if (!pendingVerification || resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((prev) => (prev <= 0 ? 0 : prev - 1)), 1000);
+    return () => clearInterval(t);
+  }, [pendingVerification, resendCooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const { token, verificationRequired } = await auth.register({ email, password, name, role });
-      localStorage.setItem("token", token);
-      setSessionExpiry();
-      if (verificationRequired) {
-        setPendingVerification(true);
-      } else {
-        await refresh();
-        navigate("/dashboard");
-      }
+      const { message, emailError: errMsg } = await auth.register({
+        email,
+        password,
+        name,
+        role,
+      });
+      logout();
+      setEmailSent(!errMsg && (message ?? "").includes("sent to your email"));
+      setEmailError(errMsg ?? null);
+      setPendingVerification(true);
+      setVerifyCode("");
+      setResendCooldown(60);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -44,11 +61,15 @@ export default function Register() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (verifyCode.length !== 6) return;
+    const code = verifyCode.replace(/\D/g, "").slice(0, 6);
+    if (code.length !== 6) return;
+    const emailNorm = email.trim().toLowerCase();
     setVerifyError("");
     setVerifyLoading(true);
     try {
-      await auth.verifyEmail(verifyCode);
+      const { token } = await auth.verifyEmail(emailNorm, code);
+      localStorage.setItem("token", token);
+      setSessionExpiry();
       await refresh();
       setPendingVerification(false);
       navigate("/dashboard");
@@ -59,6 +80,21 @@ export default function Register() {
     }
   };
 
+  const handleResendCode = async () => {
+    const emailNorm = email.trim().toLowerCase();
+    if (!emailNorm || resendCooldown > 0) return;
+    setResendLoading(true);
+    setVerifyError("");
+    try {
+      await auth.resendVerificationCode(emailNorm);
+      setResendCooldown(60);
+    } catch (err: unknown) {
+      setVerifyError(err instanceof Error ? err.message : "Failed to resend code");
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   if (pendingVerification) {
     return (
       <div className="mx-auto mt-10 w-full max-w-sm">
@@ -66,8 +102,13 @@ export default function Register() {
           <CardHeader className="space-y-2">
             <CardTitle>Verify your email</CardTitle>
             <CardDescription>
-              We sent a 6-digit code to <strong>{email}</strong>. Enter it below (valid 10 minutes).
+              {emailSent
+                ? <>We sent a 6-digit code to <strong>{email}</strong>. Enter it below (valid 10 minutes). Check spam if you don’t see it.</>
+                : <>We couldn&apos;t send the code to <strong>{email}</strong>. Use &quot;Resend code&quot; or set SMTP in backend/.env.</>}
             </CardDescription>
+            {emailError && (
+              <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{emailError}</p>
+            )}
           </CardHeader>
           <CardContent>
             <form onSubmit={handleVerify} className="space-y-4">
@@ -80,12 +121,24 @@ export default function Register() {
                   maxLength={6}
                   placeholder="000000"
                   value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onChange={(e) => {
+                    setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                    setVerifyError("");
+                  }}
                   className="w-32 font-mono tracking-[0.25em]"
                 />
               </div>
               <Button type="submit" className="w-full" disabled={verifyCode.length !== 6 || verifyLoading}>
                 {verifyLoading ? "Verifying…" : "Verify and continue"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={resendLoading || resendCooldown > 0}
+                onClick={handleResendCode}
+              >
+                {resendLoading ? "Sending…" : resendCooldown > 0 ? `Resend code (in ${resendCooldown}s)` : "Resend code"}
               </Button>
             </form>
           </CardContent>
@@ -103,7 +156,12 @@ export default function Register() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && (
+              <p className="text-sm text-destructive">
+                {error}
+                {error === "Email already registered" && " Use the link below to log in."}
+              </p>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Name</label>
               <Input value={name} onChange={(e) => setName(e.target.value)} required />

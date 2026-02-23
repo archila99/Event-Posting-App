@@ -31,8 +31,20 @@ export function CreateEventForm({ onSuccess, onCancel }: CreateEventFormProps) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    locations.list().then(setLocList).catch(() => setLocList([]));
-    timeSlots.list().then(setSlotList).catch(() => setSlotList([]));
+    const ac = new AbortController();
+    locations
+      .list(ac.signal)
+      .then(setLocList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setLocList([]);
+      });
+    timeSlots
+      .list(ac.signal)
+      .then(setSlotList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setSlotList([]);
+      });
+    return () => ac.abort();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

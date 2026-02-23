@@ -18,12 +18,20 @@ export default function MyReservations() {
 
   const isVerified = !!user?.emailVerifiedAt;
 
-  const refresh = () => {
-    reservations.my().then(setList).catch(() => setList([])).finally(() => setLoading(false));
+  const refresh = (signal?: AbortSignal) => {
+    reservations
+      .my(signal)
+      .then(setList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setList([]);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    refresh();
+    const ac = new AbortController();
+    refresh(ac.signal);
+    return () => ac.abort();
   }, []);
 
   const startPurchase = (reservationId: string) => {

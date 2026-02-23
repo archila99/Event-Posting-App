@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { auth, type User } from "./api";
 
-const SESSION_DURATION_MS = 20 * 60 * 1000; // 20 minutes for all roles
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days - persisted so user does not need to re-auth every time
 
 const SESSION_EXPIRES_KEY = "sessionExpiresAt";
 
@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     const token = localStorage.getItem("token");
     if (!token) {
       setUser(null);
@@ -49,17 +49,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const u = await auth.me();
+      const u = await auth.me(signal);
       setUser(u);
-    } catch {
-      clearSession();
+    } catch (err) {
+      if ((err as { name?: string })?.name === "AbortError") return;
+      const msg = String((err as Error)?.message ?? "").toLowerCase();
+      const isAuthError = msg.includes("unauthorized") || msg.includes("401");
+      if (isAuthError) clearSession();
       setUser(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const initialRefreshDone = React.useRef(false);
   useEffect(() => {
+    if (initialRefreshDone.current) return;
+    initialRefreshDone.current = true;
     refresh();
   }, [refresh]);
 

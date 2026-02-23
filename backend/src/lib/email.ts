@@ -1,22 +1,27 @@
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const EMAIL_FROM = process.env.EMAIL_FROM || "noreply@ticketbook.com";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Send verification code to user's email. If SMTP is not configured, logs to console. */
-export async function sendVerificationCode(toEmail: string, code: string): Promise<void> {
-  const subject = "Your Ticket Book verification code";
-  const text = `Your verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`;
-  const html = `<p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 10 minutes. Do not share it with anyone.</p>`;
+function getEmailConfig() {
+  dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
+  const SMTP_HOST = process.env.SMTP_HOST;
+  const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
+  const SMTP_USER = process.env.SMTP_USER;
+  const SMTP_PASS = process.env.SMTP_PASS;
+  const EMAIL_FROM = (process.env.EMAIL_FROM || process.env.SMTP_USER || "noreply@ticketbook.com").trim();
+  return { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM };
+}
 
+/** Send a single email via SMTP. Returns true if sent, false if SMTP not configured; throws on send failure. */
+async function sendEmail(to: string, subject: string, text: string, html: string): Promise<boolean> {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM } = getEmailConfig();
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.log("[Email not configured] Verification code for", toEmail, ":", code);
-    return;
+    console.warn("[Email] Not configured — SMTP_HOST, SMTP_USER, or SMTP_PASS missing. Check backend/.env");
+    return false;
   }
-
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
@@ -24,14 +29,43 @@ export async function sendVerificationCode(toEmail: string, code: string): Promi
     auth: { user: SMTP_USER, pass: SMTP_PASS },
     ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
   });
+  try {
+    console.log("[Email] Sending:", subject, "→", to);
+    await transporter.sendMail({
+      from: EMAIL_FROM || SMTP_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+    console.log("[Email] Sent successfully:", subject, "→", to);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[Email] SMTP send failed:", msg);
+    if (stack) console.error("[Email] Stack:", stack);
+    if (err && typeof err === "object" && "response" in err) console.error("[Email] Response:", (err as { response: string }).response);
+    throw err;
+  }
+}
 
-  await transporter.sendMail({
-    from: EMAIL_FROM || SMTP_USER,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+/** Send verification code to user's email. Returns true if sent, false if SMTP not configured; throws on send failure. */
+export async function sendVerificationCode(toEmail: string, code: string): Promise<boolean> {
+  const subject = "Your Eventora verification code";
+  const text = `Your verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`;
+  const html = `<p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 10 minutes. Do not share it with anyone.</p>`;
+
+  try {
+    const sent = await sendEmail(toEmail, subject, text, html);
+    if (!sent) {
+      console.log("[Email] Not configured — verification code for", toEmail, ":", code);
+    }
+    return sent;
+  } catch (err) {
+    console.error("[Email] sendVerificationCode failed for", toEmail, ":", err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 export type EventCancellationRecipient = "attendee" | "artist";
@@ -56,26 +90,8 @@ export async function sendEventCancellationEmail(
     ? `<p>The event <strong>${escapeHtml(title)}</strong> scheduled for ${escapeHtml(when)} has been cancelled by the administrator.</p><p>Your reservation has been cancelled. If you had already purchased ticket(s), they will be refunded.</p><p>We apologise for any inconvenience.</p>`
     : `<p>Your event <strong>${escapeHtml(title)}</strong> scheduled for ${escapeHtml(when)} has been cancelled by the administrator.</p>`;
 
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.log("[Email not configured] Event cancellation to", toEmail, ":", subject);
-    return;
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-    ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
-  });
-
-  await transporter.sendMail({
-    from: EMAIL_FROM || SMTP_USER,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+  const sent = await sendEmail(toEmail, subject, text, html);
+  if (!sent) console.log("[Email not configured] Event cancellation to", toEmail, ":", subject);
 }
 
 /** Send ticket refund notification (admin refunded this ticket). If SMTP not configured, logs to console. */
@@ -89,26 +105,8 @@ export async function sendTicketRefundEmail(
   const text = `Your ticket for "${title}" scheduled for ${when} has been refunded by the administrator.\n\nIf you have any questions, please contact support.`;
   const html = `<p>Your ticket for <strong>${escapeHtml(title)}</strong> scheduled for ${escapeHtml(when)} has been refunded by the administrator.</p><p>If you have any questions, please contact support.</p>`;
 
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.log("[Email not configured] Ticket refund to", toEmail, ":", subject);
-    return;
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-    ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
-  });
-
-  await transporter.sendMail({
-    from: EMAIL_FROM || SMTP_USER,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+  const sent = await sendEmail(toEmail, subject, text, html);
+  if (!sent) console.log("[Email not configured] Ticket refund to", toEmail, ":", subject);
 }
 
 function escapeHtml(s: string): string {

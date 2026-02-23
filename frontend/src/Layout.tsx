@@ -11,6 +11,8 @@ import {
 } from "./components/ui/dropdown-menu";
 import { useEffect, useMemo, useState } from "react";
 
+const ALLOWED_UNVERIFIED_PATHS = ["/verify-email", "/login", "/register"];
+
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
   const location = useLocation();
   const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to + "/"));
@@ -31,6 +33,13 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (user && !user.emailVerifiedAt && user.role !== "ADMIN" && !ALLOWED_UNVERIFIED_PATHS.includes(location.pathname)) {
+      navigate("/verify-email", { replace: true });
+    }
+  }, [user, location.pathname, navigate]);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");

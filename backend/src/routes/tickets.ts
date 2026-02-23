@@ -1,7 +1,7 @@
 import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { authMiddleware } from "../middleware/auth.js";
+import { authMiddleware, requireEmailVerified } from "../middleware/auth.js";
 import { auditLog } from "../lib/audit.js";
 import { sendVerificationCode } from "../lib/email.js";
 
@@ -14,6 +14,9 @@ function generateCode(): string {
 export const ticketsRouter = Router();
 
 ticketsRouter.use(authMiddleware);
+ticketsRouter.use((req, res, next) => {
+  void requireEmailVerified(req, res, next).catch(next);
+});
 
 ticketsRouter.get("/my", async (req: express.Request & { user?: { userId: string } }, res) => {
   const list = await prisma.ticket.findMany({
@@ -67,7 +70,12 @@ ticketsRouter.post("/send-verification-code/:reservationId", async (req: express
   });
 
   try {
-    await sendVerificationCode(reservation.user.email, code);
+    const sent = await sendVerificationCode(reservation.user.email, code);
+    if (!sent) {
+      return res.status(503).json({
+        error: "Verification email is not configured. Contact support.",
+      });
+    }
   } catch (err) {
     console.error("[send-verification-code] Email send failed:", err instanceof Error ? err.message : err);
     return res.status(503).json({

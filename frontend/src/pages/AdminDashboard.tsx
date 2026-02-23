@@ -27,19 +27,34 @@ export default function AdminDashboard() {
   const [slotForm, setSlotForm] = useState({ name: "", startTime: "13:00", endTime: "17:00" });
   const [capacityOverride, setCapacityOverride] = useState<{ id: string; value: string } | null>(null);
 
-  const load = () => {
+  const load = (signal?: AbortSignal) => {
     setLoading(true);
-    if (tab === "events") admin.events().then(setEventList).catch(() => setEventList([])).finally(() => setLoading(false));
-    else if (tab === "locations") locations.all().then(setLocList).catch(() => setLocList([])).finally(() => setLoading(false));
-    else if (tab === "slots") timeSlots.all().then(setSlotList).catch(() => setSlotList([])).finally(() => setLoading(false));
-    else if (tab === "reservations") admin.reservations().then(setResList).catch(() => setResList([])).finally(() => setLoading(false));
-    else if (tab === "purchases") admin.purchases().then(setPurchaseList).catch(() => setPurchaseList([])).finally(() => setLoading(false));
-    else if (tab === "audit") admin.audit().then(setAuditList).catch(() => setAuditList([])).finally(() => setLoading(false));
-    else if (tab === "users") users.list().then(setUserList).catch(() => setUserList([])).finally(() => setLoading(false));
+    if (tab === "events")
+      admin
+        .events(signal)
+        .then(setEventList)
+        .catch((err) => {
+          if ((err as { name?: string })?.name !== "AbortError") setEventList([]);
+        })
+        .finally(() => setLoading(false));
+    else if (tab === "locations")
+      locations.all().then(setLocList).catch(() => setLocList([])).finally(() => setLoading(false));
+    else if (tab === "slots")
+      timeSlots.all().then(setSlotList).catch(() => setSlotList([])).finally(() => setLoading(false));
+    else if (tab === "reservations")
+      admin.reservations().then(setResList).catch(() => setResList([])).finally(() => setLoading(false));
+    else if (tab === "purchases")
+      admin.purchases().then(setPurchaseList).catch(() => setPurchaseList([])).finally(() => setLoading(false));
+    else if (tab === "audit")
+      admin.audit().then(setAuditList).catch(() => setAuditList([])).finally(() => setLoading(false));
+    else if (tab === "users")
+      users.list().then(setUserList).catch(() => setUserList([])).finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    load();
+    const ac = new AbortController();
+    load(ac.signal);
+    return () => ac.abort();
   }, [tab]);
 
   const notify = (type: "ok" | "error", text: string) => {

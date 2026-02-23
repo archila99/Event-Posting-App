@@ -38,6 +38,17 @@ model EmailVerificationCode {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model PendingRegistration {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String
+  code         String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
 model Location {
   id          String   @id @default(cuid())
   name        String

@@ -6,36 +6,40 @@ const prisma = new PrismaClient();
 async function main() {
   const password = await bcrypt.hash("password123", 10);
 
+  const verifiedAt = new Date();
   const admin = await prisma.user.upsert({
     where: { email: "admin@ticketbook.com" },
-    update: {},
+    update: { emailVerifiedAt: verifiedAt },
     create: {
       email: "admin@ticketbook.com",
       password,
       name: "Admin",
       role: "ADMIN",
+      emailVerifiedAt: verifiedAt,
     },
   });
 
   const artist = await prisma.user.upsert({
     where: { email: "artist@ticketbook.com" },
-    update: {},
+    update: { emailVerifiedAt: verifiedAt },
     create: {
       email: "artist@ticketbook.com",
       password,
       name: "Jane Artist",
       role: "ARTIST",
+      emailVerifiedAt: verifiedAt,
     },
   });
 
   const user = await prisma.user.upsert({
     where: { email: "user@ticketbook.com" },
-    update: {},
+    update: { emailVerifiedAt: verifiedAt },
     create: {
       email: "user@ticketbook.com",
       password,
       name: "John User",
       role: "USER",
+      emailVerifiedAt: verifiedAt,
     },
   });
 

@@ -8,7 +8,15 @@ export default function MyTickets() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    tickets.my().then(setList).catch(() => setList([])).finally(() => setLoading(false));
+    const ac = new AbortController();
+    tickets
+      .my(ac.signal)
+      .then(setList)
+      .catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") setList([]);
+      })
+      .finally(() => setLoading(false));
+    return () => ac.abort();
   }, []);
 
   return (

@@ -32,3 +32,8 @@ apiRouter.get("/health/db", async (_req, res) => {
   }
 });
 
+// 404 for API: so we see path/method when a route is missing (e.g. old deployment)
+apiRouter.use((req, res) => {
+  res.status(404).json({ error: "Not Found", path: req.path, method: req.method });
+});
+

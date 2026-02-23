@@ -31,6 +31,9 @@ export async function api<T>(
     localStorage.removeItem("token");
     window.dispatchEvent(new Event("auth-unauthorized"));
   }
+  if (res.status === 403 && data?.code === "VERIFICATION_REQUIRED") {
+    window.dispatchEvent(new CustomEvent("verification-required"));
+  }
   if (!res.ok) {
     const err = data.error ?? data.message ?? res.statusText;
     const message = typeof err === "string" ? err : Array.isArray(err) ? err[0] : JSON.stringify(err);
@@ -42,22 +45,33 @@ export async function api<T>(
 
 export const auth = {
   register: (body: { email: string; password: string; name: string; role: Role }) =>
-    api<{ user: User; token: string; verificationRequired?: boolean }>("/auth/register", {
+    api<{
+      message: string;
+      expiresInMinutes?: number;
+      devCode?: string;
+      emailError?: string;
+    }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   login: (email: string, password: string) =>
     api<{ user: User; token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  me: () => api<User>("/auth/me"),
-  verifyEmail: (code: string) =>
-    api<{ success: boolean; user: User | null }>("/auth/verify-email", {
+  me: (signal?: AbortSignal) => api<User>("/auth/me", signal ? { signal } : {}),
+  verifyEmail: (email: string, code: string) =>
+    api<{ success: boolean; user: User | null; token: string }>("/auth/verify-email", {
       method: "POST",
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ email, code }),
+    }),
+  resendVerificationCode: (email: string) =>
+    api<{ message: string; expiresInMinutes?: number; devCode?: string }>("/auth/resend-verification-code", {
+      method: "POST",
+      body: JSON.stringify({ email }),
     }),
 };
 
 export const locations = {
-  list: () => api<Array<{ id: string; name: string; maxCapacity: number }>>("/locations"),
+  list: (signal?: AbortSignal) =>
+    api<Array<{ id: string; name: string; maxCapacity: number }>>("/locations", signal ? { signal } : {}),
   all: () => api<Array<{ id: string; name: string; maxCapacity: number; isActive: boolean }>>("/locations/all"),
   get: (id: string) => api<{ id: string; name: string; maxCapacity: number }>("/locations/" + id),
   create: (body: { name: string; maxCapacity: number }) =>
@@ -68,7 +82,8 @@ export const locations = {
 };
 
 export const timeSlots = {
-  list: () => api<Array<{ id: string; name: string; startTime: string; endTime: string }>>("/time-slots"),
+  list: (signal?: AbortSignal) =>
+    api<Array<{ id: string; name: string; startTime: string; endTime: string }>>("/time-slots", signal ? { signal } : {}),
   all: () =>
     api<Array<{ id: string; name: string; startTime: string; endTime: string; isActive: boolean }>>("/time-slots/all"),
   get: (id: string) => api<{ id: string; name: string; startTime: string; endTime: string }>("/time-slots/" + id),
@@ -105,11 +120,12 @@ export interface EventComment {
 }
 
 export const events = {
-  list: (params?: { status?: string; date?: string; fromDate?: string }) => {
+  list: (params?: { status?: string; date?: string; fromDate?: string }, signal?: AbortSignal) => {
     const q = new URLSearchParams(params as Record<string, string>).toString();
-    return api<EventItem[]>("/events" + (q ? "?" + q : ""));
+    return api<EventItem[]>("/events" + (q ? "?" + q : ""), signal ? { signal } : {});
   },
-  get: (id: string) => api<EventItem & { taken: number; available: number }>("/events/" + id),
+  get: (id: string, signal?: AbortSignal) =>
+    api<EventItem & { taken: number; available: number }>("/events/" + id, signal ? { signal } : {}),
   create: (body: {
     locationId: string;
     date: string;
@@ -119,11 +135,12 @@ export const events = {
     description?: string;
     imageUrl?: string;
   }) => api<EventItem>("/events", { method: "POST", body: JSON.stringify(body) }),
-  myEvents: () => api<EventItem[]>("/events/my/requests"),
+  myEvents: (signal?: AbortSignal) => api<EventItem[]>("/events/my/requests", signal ? { signal } : {}),
 };
 
 export const comments = {
-  list: (eventId: string) => api<EventComment[]>("/events/" + eventId + "/comments"),
+  list: (eventId: string, signal?: AbortSignal) =>
+    api<EventComment[]>("/events/" + eventId + "/comments", signal ? { signal } : {}),
   create: (eventId: string, content: string, parentId?: string) =>
     api<EventComment>("/events/" + eventId + "/comments", {
       method: "POST",
@@ -152,7 +169,7 @@ export async function uploadEventImage(file: File): Promise<{ url: string }> {
 }
 
 export const reservations = {
-  my: () =>
+  my: (signal?: AbortSignal) =>
     api<
       Array<{
         id: string;
@@ -161,7 +178,7 @@ export const reservations = {
         expiresAt: string;
         event: EventItem & { taken: number; available: number };
       }>
-    >("/reservations/my"),
+    >("/reservations/my", signal ? { signal } : {}),
   create: (body: { eventId: string; quantity: number }) =>
     api<{ id: string; eventId: string; quantity: number; expiresAt: string }>("/reservations", {
       method: "POST",
@@ -179,7 +196,7 @@ export const reservations = {
 };
 
 export const tickets = {
-  my: () =>
+  my: (signal?: AbortSignal) =>
     api<
       Array<{
         id: string;
@@ -187,7 +204,7 @@ export const tickets = {
         purchasedAt: string | null;
         event: EventItem;
       }>
-    >("/tickets/my"),
+    >("/tickets/my", signal ? { signal } : {}),
   sendVerificationCode: (reservationId: string) =>
     api<{ message: string; expiresInMinutes?: number; skipVerification?: boolean }>(
       "/tickets/send-verification-code/" + reservationId,
@@ -201,7 +218,7 @@ export const tickets = {
 };
 
 export const admin = {
-  events: () => api<EventItem[]>("/admin/events"),
+  events: (signal?: AbortSignal) => api<EventItem[]>("/admin/events", signal ? { signal } : {}),
   cancelEvent: (id: string) => api<{ message: string }>("/admin/events/" + id + "/cancel", { method: "POST" }),
   overrideCapacity: (id: string, capacity: number) =>
     api<{ message: string; capacity: number }>("/admin/events/" + id + "/capacity", {
