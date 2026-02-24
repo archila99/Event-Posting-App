@@ -1,10 +1,10 @@
 # Ticket Book
 
-A full-stack ticket reservation and purchase system with roles (Admin, Artist, User), venues, time slots, events, and atomic capacity handling.
+A full-stack ticket reservation and purchase system with roles (Admin, Artist, User), venues, time slots, events, and atomic capacity handling. Ready to clone, configure, and push to GitHub.
 
 ## Features
 
-- **Admin**: Create/update/deactivate locations and time slots; cancel events; override event capacity; view all reservations and purchases; refund tickets; deactivate users; audit log. (Admin account is created via database seed only—not available at registration.)
+- **Admin**: Create/update/deactivate locations and time slots; cancel events (deletes event and frees the slot for a new one); override event capacity; view all reservations and purchases; refund tickets; deactivate users; audit log. (Admin account is created via database seed only—not available at registration.)
 - **Artist**: Create events (location, date, time slot, optional image); events go live when the slot is free; view my events.
 - **User**: Browse approved events; reserve 1–2 tickets per event (10-minute hold); complete purchase (email verification at first registration, then one-click for verified users); view my reservations and tickets; comment on events.
 
@@ -28,6 +28,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
    git clone https://github.com/YOUR_USERNAME/Ticket_Book.git
    cd Ticket_Book
    ```
+   Replace `YOUR_USERNAME` with the repo owner (or use the clone URL from GitHub).
 
 2. **Install dependencies**
 
@@ -100,7 +101,7 @@ Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For Clou
 - `JWT_EXPIRES_IN` – Token/session lifetime (default `20m`; user must log in again after it expires; use `7d` for longer sessions)
 - `PORT` – Backend port (default `3001`)
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
-- `GCS_BUCKET` – (Optional) Google Cloud Storage bucket name for event images. If set, uploads go to GCS and the public URL is stored in the database; otherwise files are saved under `backend/uploads/` and served at `/api/uploads/`. On Cloud Run, set this so images persist across deploys.
+- `GCS_BUCKET` – (Optional) Google Cloud Storage bucket name for event images. If set, uploads go to GCS (bucket stays **private**); the API serves images via a proxy route (`/api/events/:id/image`) so the frontend can display them without making the bucket public. Otherwise files are saved under `backend/uploads/` and served at `/api/uploads/`. On Cloud Run, set this so images persist across deploys.
 
 ### Email
 
@@ -128,6 +129,7 @@ Users receive a 6-digit code by email and enter it on the verification screen; t
 - Session lasts 20 minutes by default (configurable via `JWT_EXPIRES_IN`); after that the user must log in again.
 - Forgot password: user enters email → receives 6-digit code → enters code and new password → password is updated; then they log in with the new password.
 - Comments: users can reply to others’ comments but not to their own.
+- Admin cancel: the event is deleted from the database (reservations and tickets for it are removed), so the slot is free for a new event.
 
 ## Load testing (k6 + Grafana)
 
@@ -189,26 +191,28 @@ chmod +x deploy.sh
 ### Optional
 
 - **Keep one instance warm** (avoid cold-start 503): in `.env.deploy` set `MIN_INSTANCES=1`.
-- **Event images on Cloud Run**: set `GCS_BUCKET=your-bucket-name` in `.env.deploy` and redeploy. Grant the Cloud Run service account **Storage Object Admin** on the bucket (so it can upload). The app serves images via **signed URLs** (1‑hour), so you do **not** need to make the bucket publicly readable—this works even when your project has Public Access Prevention enabled.
+- **Event images on Cloud Run**: Keep your bucket **private**. Set `GCS_BUCKET=your-bucket-name` in `.env.deploy` and redeploy. Grant the Cloud Run service account **Storage Object Admin** on the bucket. The API serves images via `/api/events/:id/image` (proxy), so the frontend displays `event.imageUrl` in event cards without exposing the bucket.
 - **Manual deploy** (without `deploy.sh`): pass env vars with `gcloud run deploy ... --set-env-vars` or `--env-vars-file`. Use `--add-cloudsql-instances PROJECT:REGION:INSTANCE` and `DATABASE_URL` with `?host=/cloudsql/PROJECT:REGION:INSTANCE`.
 - **Secret Manager**: store `DATABASE_URL` and `JWT_SECRET` in Secret Manager and use `--set-secrets` instead of env vars.
 
 ## Pushing to GitHub
 
-1. **Ensure nothing secret is committed**  
-   `.gitignore` excludes `backend/.env`, `.env.deploy`, `.cursor/`, `node_modules`, and build output. Commit only `backend/.env.example` and `.env.deploy.example` (templates with no real secrets).
+The repo is set up to be safe to push: `.gitignore` excludes secrets, env files with credentials, build output, and IDE/OS cruft. Only template env files (e.g. `backend/.env.example`, `.env.deploy.example`) are committed.
+
+1. **Before first push**  
+   Ensure `backend/.env` and `.env.deploy` are **not** staged (they contain secrets). Run `git status` and confirm they do not appear.
 
 2. **Initialize and push** (if the repo is not yet on GitHub):
    ```bash
    git init
    git add .
-   git status   # confirm backend/.env does not appear
+   git status   # confirm backend/.env and .env.deploy do not appear
    git commit -m "Initial commit: Ticket Book app"
    git branch -M main
    git remote add origin https://github.com/YOUR_USERNAME/Ticket_Book.git
    git push -u origin main
    ```
-   Replace `YOUR_USERNAME` with your GitHub username (or your org and repo URL).
+   Replace `YOUR_USERNAME` with your GitHub username or use your org/repo URL.
 
 3. **After someone clones**  
    They run `cp backend/.env.example backend/.env`, set `DATABASE_URL` and `JWT_SECRET`, then `npm run db:push` and `npm run db:seed`.

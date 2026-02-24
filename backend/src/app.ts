@@ -35,10 +35,10 @@ export function createApp({ uploadsDir, frontendDir }: CreateAppOptions) {
   }
 
   // Catch errors and send 500 (avoid sending after headers sent → malformed response)
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    console.error("[Error]", msg, stack || "");
+    console.error("[Error]", req.method, req.path, msg, stack || "");
     if (res.headersSent) return;
     res.status(500).json({ error: "Internal Server Error", message: msg });
   });

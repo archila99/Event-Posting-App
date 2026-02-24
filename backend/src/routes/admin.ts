@@ -2,7 +2,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
-import { withSignedImageUrl } from "../lib/storage.js";
+import { withEventImageDisplayUrl } from "../lib/storage.js";
 import { Role } from "../types.js";
 import { auditLog } from "../lib/audit.js";
 import { sendEventCancellationEmail, sendTicketRefundEmail } from "../lib/email.js";
@@ -25,81 +25,86 @@ adminRouter.get("/events", admin, onlyAdmin, async (_req, res) => {
       return { ...e, taken, available: e.capacity - taken };
     })
   );
-  const withSigned = await Promise.all(withTaken.map((e) => withSignedImageUrl(e)));
-  return res.json(withSigned);
+  const withDisplayUrl = withTaken.map((e) => withEventImageDisplayUrl(e));
+  return res.json(withDisplayUrl);
 });
 
 adminRouter.post(
   "/events/:id/cancel",
   admin,
   onlyAdmin,
-  async (req: express.Request & { user?: { userId: string } }, res) => {
-    const event = await prisma.event.findUnique({
-      where: { id: req.params.id },
-      include: {
-        location: { select: { name: true } },
-        timeSlot: { select: { name: true, startTime: true, endTime: true } },
-        artist: { select: { email: true } },
-      },
-    });
-    if (!event) return res.status(404).json({ error: "Event not found" });
-    if (event.status === "CANCELLED") return res.status(400).json({ error: "Event already cancelled" });
+  async (req: express.Request & { user?: { userId: string } }, res, next) => {
+    try {
+      const event = await prisma.event.findUnique({
+        where: { id: req.params.id },
+        include: {
+          location: { select: { name: true } },
+          timeSlot: { select: { name: true, startTime: true, endTime: true } },
+          artist: { select: { email: true } },
+        },
+      });
+      if (!event) return res.status(404).json({ error: "Event not found" });
+      if (event.status === "CANCELLED") return res.status(400).json({ error: "Event already cancelled" });
 
-    const [reservationUsers, soldTicketUsers] = await Promise.all([
-      prisma.reservation.findMany({
-        where: { eventId: event.id, status: "ACTIVE" },
-        select: { user: { select: { email: true } } },
-      }),
-      prisma.ticket.findMany({
-        where: { eventId: event.id, status: "SOLD", userId: { not: null } },
-        select: { user: { select: { email: true } } },
-      }),
-    ]);
-    const attendeeEmails = new Set<string>();
-    reservationUsers.forEach((r) => r.user?.email && attendeeEmails.add(r.user.email));
-    soldTicketUsers.forEach((t) => t.user?.email && attendeeEmails.add(t.user.email));
+      const [reservationUsers, soldTicketUsers] = await Promise.all([
+        prisma.reservation.findMany({
+          where: { eventId: event.id, status: "ACTIVE" },
+          select: { user: { select: { email: true } } },
+        }),
+        prisma.ticket.findMany({
+          where: { eventId: event.id, status: "SOLD", userId: { not: null } },
+          select: { user: { select: { email: true } } },
+        }),
+      ]);
+      const attendeeEmails = new Set<string>();
+      reservationUsers.forEach((r) => r.user?.email && attendeeEmails.add(r.user.email));
+      soldTicketUsers.forEach((t) => t.user?.email && attendeeEmails.add(t.user.email));
 
-    await prisma.$transaction(async (tx) => {
-      await tx.event.update({
-        where: { id: event.id },
-        data: { status: "CANCELLED", cancelledAt: new Date() },
+      await prisma.$transaction(async (tx) => {
+        const reservations = await tx.reservation.findMany({
+          where: { eventId: event.id },
+          select: { id: true },
+        });
+        const reservationIds = reservations.map((r) => r.id);
+        if (reservationIds.length > 0) {
+          await tx.verificationCode.deleteMany({
+            where: { reservationId: { in: reservationIds } },
+          });
+        }
+        await tx.ticket.deleteMany({ where: { eventId: event.id } });
+        await tx.reservation.deleteMany({ where: { eventId: event.id } });
+        await tx.eventComment.deleteMany({ where: { eventId: event.id } });
+        await tx.event.delete({ where: { id: event.id } });
       });
-      await tx.reservation.updateMany({
-        where: { eventId: event.id, status: "ACTIVE" },
-        data: { status: "EXPIRED" },
-      });
-      await tx.ticket.updateMany({
-        where: { eventId: event.id, status: "RESERVED" },
-        data: { status: "EXPIRED" },
-      });
-      await tx.ticket.updateMany({
-        where: { eventId: event.id, status: "SOLD" },
-        data: { status: "REFUNDED" },
-      });
-    });
-    await auditLog("EVENT_CANCELLED", "Event", event.id, req.user?.userId);
+      await auditLog("EVENT_CANCELLED", "Event", event.id, req.user?.userId);
 
-    const eventInfo = {
-      title: event.title,
-      date: event.date,
-      locationName: event.location.name,
-      timeSlotName: event.timeSlot.name,
-      timeSlotRange: `${event.timeSlot.startTime}–${event.timeSlot.endTime}`,
-    };
-    await Promise.all([
-      ...Array.from(attendeeEmails).map((email) =>
-        sendEventCancellationEmail(email, eventInfo, "attendee").catch((err) =>
-          console.error("[Cancel] Failed to send cancellation email to", email, err)
-        )
-      ),
-      event.artist.email
-        ? sendEventCancellationEmail(event.artist.email, eventInfo, "artist").catch((err) =>
-            console.error("[Cancel] Failed to send cancellation email to artist", event.artist.email, err)
+      const eventInfo = {
+        title: event.title,
+        date: event.date,
+        locationName: event.location.name,
+        timeSlotName: event.timeSlot.name,
+        timeSlotRange: `${event.timeSlot.startTime}–${event.timeSlot.endTime}`,
+      };
+      await Promise.all([
+        ...Array.from(attendeeEmails).map((email) =>
+          sendEventCancellationEmail(email, eventInfo, "attendee").catch((err) =>
+            console.error("[Cancel] Failed to send cancellation email to", email, err)
           )
-        : Promise.resolve(),
-    ]);
+        ),
+        event.artist.email
+          ? sendEventCancellationEmail(event.artist.email, eventInfo, "artist").catch((err) =>
+              console.error("[Cancel] Failed to send cancellation email to artist", event.artist.email, err)
+            )
+          : Promise.resolve(),
+      ]);
 
-    return res.json({ message: "Event cancelled; reservations invalidated; tickets marked for refund; notification emails sent" });
+      return res.json({
+        message:
+          "Event deleted; reservations and tickets removed; slot is free for a new event. Notification emails sent.",
+      });
+    } catch (e) {
+      next(e);
+    }
   }
 );
 

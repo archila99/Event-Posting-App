@@ -81,10 +81,12 @@ yaml_single() { local s="$1"; printf "'%s'" "${s//\'/\'\'}"; }
   [ -n "${SMTP_HOST}" ] && printf 'SMTP_HOST: %s\n' "$(esc "$SMTP_HOST")"
   [ -n "${SMTP_PORT}" ] && printf 'SMTP_PORT: %s\n' "$(esc "$SMTP_PORT")"
   [ -n "${EMAIL_FROM}" ] && printf 'EMAIL_FROM: %s\n' "$(esc "$EMAIL_FROM")"
-  [ -n "${GCS_BUCKET}" ] && printf 'GCS_BUCKET: %s\n' "$(esc "$GCS_BUCKET")"
+  [ -n "${GCS_BUCKET}" ] && printf 'GCS_BUCKET: "%s"\n' "${GCS_BUCKET}"
 } > "$ENV_FILE"
 
-if [ -z "${GCS_BUCKET}" ]; then
+if [ -n "${GCS_BUCKET}" ]; then
+  echo "GCS_BUCKET is set — event images will be stored in GCS (bucket: ${GCS_BUCKET})."
+else
   echo "Note: GCS_BUCKET not set in .env.deploy — event images will not persist on Cloud Run (ephemeral storage)."
 fi
 

@@ -1,13 +1,12 @@
 import { prisma } from "../lib/prisma.js";
 
-/** Slot is reserved if there is an APPROVED event (not cancelled). */
+/** Slot is free only if no event exists for (location, date, timeSlot). DB has unique on these fields, so we must check all statuses. */
 export async function isLocationAvailable(locationId: string, date: string, timeSlotId: string, excludeEventId?: string): Promise<boolean> {
   const existing = await prisma.event.findFirst({
     where: {
       locationId,
       date,
       timeSlotId,
-      status: "APPROVED",
       id: excludeEventId ? { not: excludeEventId } : undefined,
     },
   });
@@ -55,7 +54,7 @@ export async function validateEventCreation(
   }
 
   const locationFree = await isLocationAvailable(locationId, date, timeSlotId);
-  if (!locationFree) return { ok: false, error: "This slot is already reserved. Choose another date or time slot." };
+  if (!locationFree) return { ok: false, error: "This location and time slot is already taken for this date. Choose another date or time slot." };
 
   const artistFree = await isArtistAvailable(artistId, date, timeSlotId);
   if (!artistFree) return { ok: false, error: "You already have an event in this time slot." };

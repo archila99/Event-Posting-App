@@ -1,4 +1,6 @@
-# Safe to push to GitHub: secrets and build artifacts are ignored.
+# Ticket Book – safe to push to GitHub
+# Do not commit: secrets, env files with credentials, build output, or IDE/OS files.
+# Committed templates: backend/.env.example, .env.deploy.example (no real secrets).
 
 # Dependencies
 node_modules/
@@ -7,16 +9,15 @@ node_modules/
 dist/
 build/
 
-# Environment (never commit secrets; DB URL and JWT_SECRET live here)
+# Environment – never commit (DB URL, JWT_SECRET, SMTP, GCS_BUCKET, etc.)
 .env
 .env.local
 .env.*.local
 !.env.example
 backend/.env
 .env.deploy
-# Keep .env.deploy.example and backend/.env.example in repo (no secrets)
 
-# Database (SQLite leftovers; project uses PostgreSQL)
+# Database (project uses PostgreSQL; ignore SQLite leftovers)
 *.db
 *.db-journal
 backend/prisma/*.db
@@ -35,6 +36,7 @@ frontend/dist/
 npm-debug.log*
 .cache
 .vite
+.cursor/debug*.log
 
 # Cursor / IDE
 .cursor/
@@ -43,7 +45,7 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# IDE (optional; uncomment to ignore)
+# IDE (uncomment if you use these)
 # .idea/
 # .vscode/
 # *.swp
@@ -59,3 +61,5 @@ coverage/
 pnpm-debug.log*
 .yarn/
 .yarnrc.yml
+.env.backup
+.env.deploy.backup

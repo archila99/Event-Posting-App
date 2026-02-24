@@ -1,8 +1,13 @@
 import express, { Router } from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, "..", "..", "uploads");
 import { authMiddleware, requireRole } from "../middleware/auth.js";
-import { withSignedImageUrl } from "../lib/storage.js";
+import { withEventImageDisplayUrl, streamGcsImageToResponse } from "../lib/storage.js";
 import { Role } from "../types.js";
 import { validateEventCreation } from "../services/eventValidation.js";
 import { auditLog } from "../lib/audit.js";
@@ -50,26 +55,52 @@ eventsRouter.get("/", async (req, res, next) => {
       }));
     });
     const result = await Promise.all(withAvailable);
-    const withSigned = await Promise.all(result.map((e) => withSignedImageUrl(e)));
-    return res.json(withSigned);
+    const withDisplayUrl = result.map((e) => withEventImageDisplayUrl(e));
+    return res.json(withDisplayUrl);
   } catch (e) {
     next(e);
   }
 });
 
-eventsRouter.get("/:id", async (req, res) => {
-  const event = await prisma.event.findUnique({
-    where: { id: req.params.id },
-    include: {
-      artist: { select: { id: true, name: true, email: true } },
-      location: { select: { id: true, name: true, maxCapacity: true } },
-      timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
-    },
-  });
-  if (!event) return res.status(404).json({ error: "Event not found" });
-  const taken = await prisma.ticket.count({ where: { eventId: event.id, status: { in: ["RESERVED", "SOLD"] } } });
-  const withSigned = await withSignedImageUrl({ ...event, taken, available: event.capacity - taken });
-  return res.json(withSigned);
+eventsRouter.get("/:id/image", async (req, res, next) => {
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { imageUrl: true },
+    });
+    if (!event?.imageUrl) return res.status(404).end();
+    const streamed = await streamGcsImageToResponse(event.imageUrl, res);
+    if (streamed) return;
+    if (event.imageUrl.startsWith("/api/uploads/")) {
+      const filename = event.imageUrl.replace(/^\/api\/uploads\//, "");
+      if (!filename || filename.includes("..")) return res.status(404).end();
+      return res.sendFile(filename, { root: uploadsDir }, (err) => {
+        if (err && !res.headersSent) res.status(404).end();
+      });
+    }
+    return res.status(404).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
+eventsRouter.get("/:id", async (req, res, next) => {
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      include: {
+        artist: { select: { id: true, name: true, email: true } },
+        location: { select: { id: true, name: true, maxCapacity: true } },
+        timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
+      },
+    });
+    if (!event) return res.status(404).json({ error: "Event not found" });
+    const taken = await prisma.ticket.count({ where: { eventId: event.id, status: { in: ["RESERVED", "SOLD"] } } });
+    const withDisplayUrl = withEventImageDisplayUrl({ ...event, taken, available: event.capacity - taken });
+    return res.json(withDisplayUrl);
+  } catch (e) {
+    next(e);
+  }
 });
 
 eventsRouter.get("/:id/comments", async (req, res) => {
@@ -143,34 +174,38 @@ eventsRouter.post(
   "/",
   authMiddleware,
   requireRole(Role.ARTIST),
-  async (req: express.Request & { user?: { userId: string } }, res) => {
-    const parsed = createEventSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const { locationId, date, timeSlotId, capacity, title, description, imageUrl } = parsed.data;
-    const artistId = req.user!.userId;
-    const validation = await validateEventCreation(artistId, locationId, date, timeSlotId, capacity);
-    if (!validation.ok) return res.status(400).json({ error: validation.error });
-    const event = await prisma.event.create({
-      data: {
-        artistId,
-        locationId,
-        timeSlotId,
-        date,
-        capacity,
-        title: title || null,
-        description: description || null,
-        imageUrl: imageUrl && imageUrl.length > 0 ? imageUrl : null,
-        status: "APPROVED",
-      },
-      include: {
-        artist: { select: { id: true, name: true, email: true } },
-        location: { select: { id: true, name: true } },
-        timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
-      },
-    });
-    await auditLog("EVENT_CREATED", "Event", event.id, artistId);
-    const withSigned = await withSignedImageUrl(event);
-    return res.status(201).json(withSigned);
+  async (req: express.Request & { user?: { userId: string } }, res, next) => {
+    try {
+      const parsed = createEventSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const { locationId, date, timeSlotId, capacity, title, description, imageUrl } = parsed.data;
+      const artistId = req.user!.userId;
+      const validation = await validateEventCreation(artistId, locationId, date, timeSlotId, capacity);
+      if (!validation.ok) return res.status(400).json({ error: validation.error });
+      const event = await prisma.event.create({
+        data: {
+          artistId,
+          locationId,
+          timeSlotId,
+          date,
+          capacity,
+          title: title || null,
+          description: description || null,
+          imageUrl: imageUrl && imageUrl.length > 0 ? imageUrl : null,
+          status: "APPROVED",
+        },
+        include: {
+          artist: { select: { id: true, name: true, email: true } },
+          location: { select: { id: true, name: true } },
+          timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
+        },
+      });
+      await auditLog("EVENT_CREATED", "Event", event.id, artistId);
+    const withDisplayUrl = withEventImageDisplayUrl(event);
+    return res.status(201).json(withDisplayUrl);
+    } catch (e) {
+      next(e);
+    }
   }
 );
 
@@ -178,17 +213,21 @@ eventsRouter.get(
   "/my/requests",
   authMiddleware,
   requireRole(Role.ARTIST),
-  async (req: express.Request & { user?: { userId: string } }, res) => {
-    const list = await prisma.event.findMany({
-      where: { artistId: req.user!.userId, status: "APPROVED" },
-      include: {
-        artist: { select: { id: true, name: true, email: true } },
-        location: { select: { id: true, name: true } },
-        timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
-      },
-      orderBy: [{ date: "asc" }, { createdAt: "desc" }],
-    });
-    const withSigned = await Promise.all(list.map((e) => withSignedImageUrl(e)));
-    return res.json(withSigned);
+  async (req: express.Request & { user?: { userId: string } }, res, next) => {
+    try {
+      const list = await prisma.event.findMany({
+        where: { artistId: req.user!.userId, status: "APPROVED" },
+        include: {
+          artist: { select: { id: true, name: true, email: true } },
+          location: { select: { id: true, name: true } },
+          timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
+        },
+        orderBy: [{ date: "asc" }, { createdAt: "desc" }],
+      });
+      const withDisplayUrl = list.map((e) => withEventImageDisplayUrl(e));
+      return res.json(withDisplayUrl);
+    } catch (e) {
+      next(e);
+    }
   }
 );
