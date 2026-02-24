@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
+import { withSignedImageUrl } from "../lib/storage.js";
 import { Role } from "../types.js";
 import { validateEventCreation } from "../services/eventValidation.js";
 import { auditLog } from "../lib/audit.js";
@@ -49,7 +50,8 @@ eventsRouter.get("/", async (req, res, next) => {
       }));
     });
     const result = await Promise.all(withAvailable);
-    return res.json(result);
+    const withSigned = await Promise.all(result.map((e) => withSignedImageUrl(e)));
+    return res.json(withSigned);
   } catch (e) {
     next(e);
   }
@@ -66,7 +68,8 @@ eventsRouter.get("/:id", async (req, res) => {
   });
   if (!event) return res.status(404).json({ error: "Event not found" });
   const taken = await prisma.ticket.count({ where: { eventId: event.id, status: { in: ["RESERVED", "SOLD"] } } });
-  return res.json({ ...event, taken, available: event.capacity - taken });
+  const withSigned = await withSignedImageUrl({ ...event, taken, available: event.capacity - taken });
+  return res.json(withSigned);
 });
 
 eventsRouter.get("/:id/comments", async (req, res) => {
@@ -166,7 +169,8 @@ eventsRouter.post(
       },
     });
     await auditLog("EVENT_CREATED", "Event", event.id, artistId);
-    return res.status(201).json(event);
+    const withSigned = await withSignedImageUrl(event);
+    return res.status(201).json(withSigned);
   }
 );
 
@@ -184,6 +188,7 @@ eventsRouter.get(
       },
       orderBy: [{ date: "asc" }, { createdAt: "desc" }],
     });
-    return res.json(list);
+    const withSigned = await Promise.all(list.map((e) => withSignedImageUrl(e)));
+    return res.json(withSigned);
   }
 );

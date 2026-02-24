@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
+import { withSignedImageUrl } from "../lib/storage.js";
 import { Role } from "../types.js";
 import { auditLog } from "../lib/audit.js";
 import { sendEventCancellationEmail, sendTicketRefundEmail } from "../lib/email.js";
@@ -24,7 +25,8 @@ adminRouter.get("/events", admin, onlyAdmin, async (_req, res) => {
       return { ...e, taken, available: e.capacity - taken };
     })
   );
-  return res.json(withTaken);
+  const withSigned = await Promise.all(withTaken.map((e) => withSignedImageUrl(e)));
+  return res.json(withSigned);
 });
 
 adminRouter.post(

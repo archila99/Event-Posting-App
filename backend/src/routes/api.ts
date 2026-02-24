@@ -32,6 +32,19 @@ apiRouter.get("/health/db", async (_req, res) => {
   }
 });
 
+// Check if Cloud Run is using GCS for event images (no secrets exposed)
+apiRouter.get("/health/storage", (_req, res) => {
+  const bucket = process.env.GCS_BUCKET?.trim() || null;
+  res.json({
+    ok: true,
+    gcsConfigured: !!bucket,
+    gcsBucket: bucket,
+    message: bucket
+      ? "Event images will be stored in GCS and persist across deploys."
+      : "GCS_BUCKET not set. Event images use ephemeral storage and will not persist. Set GCS_BUCKET in .env.deploy and redeploy.",
+  });
+});
+
 // 404 for API: so we see path/method when a route is missing (e.g. old deployment)
 apiRouter.use((req, res) => {
   res.status(404).json({ error: "Not Found", path: req.path, method: req.method });

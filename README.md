@@ -100,6 +100,7 @@ Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For Clou
 - `JWT_EXPIRES_IN` – Token/session lifetime (default `20m`; user must log in again after it expires; use `7d` for longer sessions)
 - `PORT` – Backend port (default `3001`)
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
+- `GCS_BUCKET` – (Optional) Google Cloud Storage bucket name for event images. If set, uploads go to GCS and the public URL is stored in the database; otherwise files are saved under `backend/uploads/` and served at `/api/uploads/`. On Cloud Run, set this so images persist across deploys.
 
 ### Email
 
@@ -188,6 +189,7 @@ chmod +x deploy.sh
 ### Optional
 
 - **Keep one instance warm** (avoid cold-start 503): in `.env.deploy` set `MIN_INSTANCES=1`.
+- **Event images on Cloud Run**: set `GCS_BUCKET=your-bucket-name` in `.env.deploy` and redeploy. Grant the Cloud Run service account **Storage Object Admin** on the bucket (so it can upload). The app serves images via **signed URLs** (1‑hour), so you do **not** need to make the bucket publicly readable—this works even when your project has Public Access Prevention enabled.
 - **Manual deploy** (without `deploy.sh`): pass env vars with `gcloud run deploy ... --set-env-vars` or `--env-vars-file`. Use `--add-cloudsql-instances PROJECT:REGION:INSTANCE` and `DATABASE_URL` with `?host=/cloudsql/PROJECT:REGION:INSTANCE`.
 - **Secret Manager**: store `DATABASE_URL` and `JWT_SECRET` in Secret Manager and use `--set-secrets` instead of env vars.
 
