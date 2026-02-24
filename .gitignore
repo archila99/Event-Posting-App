@@ -14,6 +14,7 @@ build/
 !.env.example
 backend/.env
 .env.deploy
+# Keep .env.deploy.example and backend/.env.example in repo (no secrets)
 
 # Database (SQLite leftovers; project uses PostgreSQL)
 *.db

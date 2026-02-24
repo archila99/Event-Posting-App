@@ -12,7 +12,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 
 - **Backend**: Node.js, Express, TypeScript, Prisma (PostgreSQL)
 - **Frontend**: React, Vite, TypeScript, React Router, Tailwind CSS
-- **Auth**: JWT; role-based access; 7-day persisted session; two-step registration (register → email with 6-digit code → verify → account created). Login only after email is verified.
+- **Auth**: JWT; role-based access; 20-minute session (then re-login); two-step registration (register → email code → verify → account created); forgot password (email code → set new password). Login only after email is verified.
 
 ## Prerequisites
 
@@ -77,7 +77,7 @@ A full-stack ticket reservation and purchase system with roles (Admin, Artist, U
 | `npm run db:seed`  | Seed admin, artist, user, slots, locations |
 | `npm run db:studio`   | Open Prisma Studio (DB GUI)             |
 
-From `backend/`: `npm run clear-auth` clears pending registrations and verification codes (does not delete users). Use Prisma Studio or SQL to remove test users.
+From `backend/`: `npm run clear-auth` clears pending registrations, verification codes, and password-reset requests (does not delete users). Use Prisma Studio or SQL to remove test users.
 
 ## Seed Accounts
 
@@ -93,11 +93,11 @@ The seed also creates time slots (Slot A, Slot B) and locations (London Stadium,
 
 ## Environment
 
-Backend reads `backend/.env`. Copy from `backend/.env.example`. Main variables:
+Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For Cloud Run, use `.env.deploy` and `deploy.sh` (see [Deploy to Google Cloud Run](#deploy-to-google-cloud-run)). Main variables:
 
 - `DATABASE_URL` – PostgreSQL connection string, e.g. `postgresql://user:password@localhost:5432/ticket_book`
 - `JWT_SECRET` – Secret for JWT signing (use a strong value in production)
-- `JWT_EXPIRES_IN` – Session lifetime (default `7d` so users stay logged in; use `20m` for short sessions)
+- `JWT_EXPIRES_IN` – Token/session lifetime (default `20m`; user must log in again after it expires; use `7d` for longer sessions)
 - `PORT` – Backend port (default `3001`)
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
 
@@ -112,7 +112,7 @@ Users receive a 6-digit code by email and enter it on the verification screen; t
 
 ## API Overview
 
-- **Auth**: `POST /api/auth/register` (returns message; no user until verified), `POST /api/auth/verify-email` (email + code → user + token), `POST /api/auth/resend-verification-code`, `POST /api/auth/login`, `GET /api/auth/me`
+- **Auth**: `POST /api/auth/register`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification-code`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`
 - **Public**: `GET /api/locations`, `GET /api/time-slots`, `GET /api/events` (optional `?fromDate=`, `?status=`), `GET /api/events/:id`
 - **Artist**: `POST /api/events`, `GET /api/events/my/requests`
 - **User**: `POST /api/reservations`, `GET /api/reservations/my`, `POST /api/tickets/send-verification-code/:id`, `POST /api/tickets/purchase/:id`, `GET /api/tickets/my`
@@ -124,7 +124,8 @@ Users receive a 6-digit code by email and enter it on the verification screen; t
 - Max 2 tickets per user per event. Reservations expire after 10 minutes.
 - Event capacity is fixed at creation (≤ location max); admin can override.
 - Registration is two-step: submit email/name/password → receive 6-digit code by email → enter code to create account. Login only for verified users. Verified users can confirm purchase without a code for later reservations.
-- Session is persisted for 7 days (configurable via `JWT_EXPIRES_IN`) so users stay logged in.
+- Session lasts 20 minutes by default (configurable via `JWT_EXPIRES_IN`); after that the user must log in again.
+- Forgot password: user enters email → receives 6-digit code → enters code and new password → password is updated; then they log in with the new password.
 - Comments: users can reply to others’ comments but not to their own.
 
 ## Load testing (k6 + Grafana)
@@ -135,135 +136,65 @@ Concurrent load tests use [k6](https://k6.io/) with optional metrics in Grafana.
 - Sending results to Grafana (Grafana Cloud k6 or self-hosted InfluxDB + Grafana)
 - Tuning VUs, duration, and thresholds
 
-## Deploy to Google Cloud Run (push from local)
+## Deployment checklist (before first deploy)
 
-You can build and deploy in one step from your machine. The app runs as a single container (backend + frontend) on [Cloud Run](https://cloud.google.com/run).
+- Run `npm run db:push` (and `npm run db:seed` if needed) so the database has all tables, including `PendingRegistration` and `PendingPasswordReset`.
+- Set `backend/.env` locally (and `.env.deploy` for Cloud Run) with `DATABASE_URL`, `JWT_SECRET`, and SMTP vars if you need email.
+- For Cloud Run: run `./deploy-db-setup.sh` once so Cloud SQL has the schema and seed; then `./deploy.sh`.
+
+## Deploy to Google Cloud Run
+
+The app runs as a single container (backend + frontend) on [Cloud Run](https://cloud.google.com/run). **Same behaviour as local**: 20‑minute session, email verification, forgot password, reservations, SMTP. Use `deploy.sh` and `.env.deploy` for a one-command deploy.
 
 ### Prerequisites
 
 - [Google Cloud SDK (gcloud)](https://cloud.google.com/sdk/docs/install) installed and logged in: `gcloud auth login`
-- A Google Cloud project: `gcloud config set project YOUR_PROJECT_ID`
-- APIs enabled: `gcloud services enable run.googleapis.com cloudbuild.googleapis.com`
-- A **PostgreSQL database** (e.g. [Cloud SQL](https://cloud.google.com/sql/docs/postgres)) with a database created. Note the connection name or connection string for `DATABASE_URL`.
+- A Google Cloud project and a **Cloud SQL for PostgreSQL** instance with a database created (e.g. `eventora_db`)
+- Database user and password (e.g. set via `gcloud sql users set-password postgres --instance=INSTANCE --password=...`)
 
-### Deploy from local
-
-1. **Set environment variables for Cloud Run**  
-   You will pass secrets/env at deploy time. Minimum:
-   - `DATABASE_URL` – PostgreSQL URL (e.g. Cloud SQL: `postgresql://user:pass@/dbname?host=/cloudsql/CONNECTION_NAME` for Unix socket, or public IP URL).
-   - `JWT_SECRET` – A strong random string for signing JWTs.
-
-2. **Deploy (build on Google Cloud, then run)**  
-   From the repo root:
-   ```bash
-   gcloud run deploy ticket-book \
-     --source . \
-     --region YOUR_REGION \
-     --allow-unauthenticated \
-     --set-env-vars "NODE_ENV=production" \
-     --set-env-vars "JWT_SECRET=your-jwt-secret" \
-     --set-env-vars "DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-   ```
-   Replace `YOUR_REGION` (e.g. `us-central1`), `JWT_SECRET`, and `DATABASE_URL` with your values. For Cloud SQL with a private connection, use the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-run) or a connection string that Cloud Run supports (e.g. Unix socket with `/cloudsql/CONNECTION_NAME`).
-
-3. **First-time database setup**  
-   Run migrations and seed once (from your machine or Cloud Shell, with network access to the DB):
-   ```bash
-   cd backend && DATABASE_URL="your-production-db-url" npx prisma db push
-   DATABASE_URL="your-production-db-url" npx prisma db seed
-   ```
-   Or use a one-off Cloud Run job / Cloud Build step that runs these commands against the same `DATABASE_URL`.
-
-4. **Optional: use Secret Manager**  
-   Store secrets in [Secret Manager](https://cloud.google.com/secret-manager), then reference them in Cloud Run:
-   ```bash
-   gcloud run deploy ticket-book --source . --region YOUR_REGION \
-     --set-secrets "DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest"
-   ```
-
-After deployment, Cloud Run prints the service URL. Open it in a browser to use the app. The container listens on `PORT` (default 8080), which Cloud Run sets automatically.
-
-### Example: deploy with project eventora (europe-west2 + Cloud SQL)
-
-You have:
-
-- **Project:** `eventora-ticketing-app`
-- **Region:** `europe-west2`
-- **Cloud SQL instance:** `eventora-postgres`
-- **Database:** `eventora_db`
-
-**1. Set your project and ensure APIs are enabled:**
+### 1. One-time: create deploy config
 
 ```bash
-gcloud config set project eventora-ticketing-app
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com sqladmin.googleapis.com
+cp .env.deploy.example .env.deploy
 ```
 
-**2. Create a database user** (if you don’t have one yet) and note the password:
+Edit `.env.deploy` and set at least:
+
+- **`DB_PASSWORD`** – PostgreSQL user password for Cloud SQL
+- **`JWT_SECRET`** – Strong random string (e.g. 32+ chars)
+
+Optionally set `GCP_PROJECT`, `GCP_REGION`, `CLOUD_SQL_INSTANCE`, `DB_NAME`, `DB_USER`, `SERVICE_NAME` (defaults are in the file). **For verification emails on Cloud Run** you must set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM` in `.env.deploy` (Cloud Run does not use `backend/.env`); use the same values as in your local `backend/.env`, then run `./deploy.sh` again. For same behaviour as local you can set `JWT_EXPIRES_IN=20m` and `RESERVATION_EXPIRY_MINUTES=10` (these are the script defaults if omitted).
+
+### 2. One-time: database schema and seed
+
+From repo root (with `.env.deploy` loaded, `DB_PASSWORD` set):
 
 ```bash
-gcloud sql users set-password postgres --instance=eventora-postgres --password=YOUR_DB_PASSWORD
-# Or create a dedicated user: gcloud sql users create YOUR_USER --instance=eventora-postgres --password=YOUR_PASSWORD
+chmod +x deploy-db-setup.sh
+./deploy-db-setup.sh
 ```
 
-**3. Run schema and seed once** (use the instance’s public IP or connect via Cloud SQL Proxy). Get the instance IP:
+This runs `prisma db push` and `prisma db seed` against your Cloud SQL instance (uses public IP from `gcloud` if `INSTANCE_IP` is not set). If you get **P1001 (Can't reach database server)**, add your IP in GCP Console under SQL → your instance → **Connections → Authorized networks**, or set **`USE_PROXY=1`** in `.env.deploy` and install [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy); the script will then connect via the proxy.
+
+### 3. Deploy (or redeploy)
 
 ```bash
-gcloud sql instances describe eventora-postgres --format='value(ipAddresses[0].ipAddress)'
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-Then from your machine (with the IP above):
+`deploy.sh` builds `DATABASE_URL` for Cloud SQL Unix socket, enables APIs, and runs `gcloud run deploy --source .` with env vars from `.env.deploy`. It passes `NODE_ENV=production`, `JWT_SECRET`, `DATABASE_URL`, `JWT_EXPIRES_IN` (default `20m`), `RESERVATION_EXPIRY_MINUTES` (default `10`), and optional `FRONTEND_URL`, SMTP vars. Cloud Run sets `PORT` (8080) automatically. After deploy, open the service URL in your browser; the app works the same as local (register, verify email, login, forgot password, reservations, SMTP when configured).
 
-```bash
-cd backend
-DATABASE_URL="postgresql://postgres:YOUR_DB_PASSWORD@INSTANCE_IP:5432/eventora_db" npx prisma db push
-DATABASE_URL="postgresql://postgres:YOUR_DB_PASSWORD@INSTANCE_IP:5432/eventora_db" npx prisma db seed
-```
+### Optional
 
-**4. Deploy to Cloud Run** (from repo root). Cloud Run connects to Cloud SQL via the Unix socket, so use this `DATABASE_URL` format:
-
-```bash
-gcloud run deploy ticket-book \
-  --source . \
-  --project eventora-ticketing-app \
-  --region europe-west2 \
-  --allow-unauthenticated \
-  --add-cloudsql-instances eventora-ticketing-app:europe-west2:eventora-postgres \
-  --set-env-vars "NODE_ENV=production" \
-  --set-env-vars "JWT_SECRET=CHANGE_ME_STRONG_SECRET" \
-  --set-env-vars "DATABASE_URL=postgresql://postgres:YOUR_DB_PASSWORD@/eventora_db?host=/cloudsql/eventora-ticketing-app:europe-west2:eventora-postgres"
-```
-
-Replace `YOUR_DB_PASSWORD` and `CHANGE_ME_STRONG_SECRET` with your real values. Optionally add `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` with `--set-env-vars` for production email.
-
-When the deploy finishes, open the printed service URL in your browser.
-
-**Or use the shell scripts (all-in-one from repo root):**
-
-1. **One-time: create a secrets file** (not committed):
-   ```bash
-   cp .env.deploy.example .env.deploy
-   # Edit .env.deploy and set DB_PASSWORD and JWT_SECRET (and optionally INSTANCE_IP for DB setup).
-   ```
-
-2. **One-time: apply schema and seed the database:**
-   ```bash
-   chmod +x deploy-db-setup.sh
-   ./deploy-db-setup.sh
-   ```
-   This uses `INSTANCE_IP` from `.env.deploy` or auto-detects it.
-
-3. **Deploy (or redeploy) to Cloud Run:**
-   ```bash
-   chmod +x deploy.sh
-   ./deploy.sh
-   ```
-   Reads project, region, instance, and secrets from `.env.deploy` and runs `gcloud run deploy`.
+- **Keep one instance warm** (avoid cold-start 503): in `.env.deploy` set `MIN_INSTANCES=1`.
+- **Manual deploy** (without `deploy.sh`): pass env vars with `gcloud run deploy ... --set-env-vars` or `--env-vars-file`. Use `--add-cloudsql-instances PROJECT:REGION:INSTANCE` and `DATABASE_URL` with `?host=/cloudsql/PROJECT:REGION:INSTANCE`.
+- **Secret Manager**: store `DATABASE_URL` and `JWT_SECRET` in Secret Manager and use `--set-secrets` instead of env vars.
 
 ## Pushing to GitHub
 
 1. **Ensure nothing secret is committed**  
-   `.gitignore` excludes `backend/.env`, `.env.deploy`, `.cursor/`, and build artifacts. Only `backend/.env.example` (and `.env.deploy.example` if present) should be in the repo — no real secrets.
+   `.gitignore` excludes `backend/.env`, `.env.deploy`, `.cursor/`, `node_modules`, and build output. Commit only `backend/.env.example` and `.env.deploy.example` (templates with no real secrets).
 
 2. **Initialize and push** (if the repo is not yet on GitHub):
    ```bash
@@ -280,6 +211,3 @@ When the deploy finishes, open the printed service URL in your browser.
 3. **After someone clones**  
    They run `cp backend/.env.example backend/.env`, set `DATABASE_URL` and `JWT_SECRET`, then `npm run db:push` and `npm run db:seed`.
 
-## License
-
-MIT (or add your preferred license.)

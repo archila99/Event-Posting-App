@@ -64,14 +64,17 @@ fi
 
 # Use env file (YAML) - Cloud Run expects map: KEY: value (per Cloud Run docs)
 # Use single-quoted YAML for DATABASE_URL so colons (@, :, ?) aren't misinterpreted
+# All app behaviour (session, reservation expiry, email) matches local when these are set.
 ENV_FILE=$(mktemp).yaml
 trap 'rm -f "$ENV_FILE"' EXIT
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/'; }
 yaml_single() { local s="$1"; printf "'%s'" "${s//\'/\'\'}"; }
 {
-  echo 'NODE_ENV: production'
+  echo 'NODE_ENV: "production"'
   printf 'JWT_SECRET: %s\n' "$(esc "$JWT_SECRET")"
   printf 'DATABASE_URL: %s\n' "$(yaml_single "$DATABASE_URL_SOCKET")"
+  printf 'JWT_EXPIRES_IN: "%s"\n' "${JWT_EXPIRES_IN:-20m}"
+  printf 'RESERVATION_EXPIRY_MINUTES: "%s"\n' "${RESERVATION_EXPIRY_MINUTES:-10}"
   [ -n "${FRONTEND_URL_TO_USE}" ] && printf 'FRONTEND_URL: %s\n' "$(esc "$FRONTEND_URL_TO_USE")"
   [ -n "${SMTP_USER}" ] && printf 'SMTP_USER: %s\n' "$(esc "$SMTP_USER")"
   [ -n "${SMTP_PASS}" ] && printf 'SMTP_PASS: %s\n' "$(esc "$SMTP_PASS")"

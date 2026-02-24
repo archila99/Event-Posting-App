@@ -49,6 +49,14 @@ model PendingRegistration {
   createdAt    DateTime @default(now())
 }
 
+model PendingPasswordReset {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
 model Location {
   id          String   @id @default(cuid())
   name        String

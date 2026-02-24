@@ -12,6 +12,10 @@ export default {
         "2xl": "980px",
       },
     },
+    fontFamily: {
+      sans: ["DM Sans", "system-ui", "-apple-system", "sans-serif"],
+      mono: ["JetBrains Mono", "monospace"],
+    },
     extend: {
       borderRadius: {
         lg: "var(--radius)",

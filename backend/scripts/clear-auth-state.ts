@@ -1,10 +1,8 @@
 /**
- * Clear temporary auth data so register flow requires verification again.
- * - Deletes all PendingRegistration (pending signups that never verified)
- * - Deletes all EmailVerificationCode (old per-user verification codes)
+ * Clear temporary auth data (pending signups, verification codes, password-reset requests).
  * Does NOT delete User records; use Prisma Studio or SQL to remove test users.
  *
- * Run from backend: npx tsx scripts/clear-auth-state.ts
+ * Run from backend: npm run clear-auth  or  npx tsx scripts/clear-auth-state.ts
  */
 import dotenv from "dotenv";
 import path from "path";
@@ -19,10 +17,12 @@ const prisma = new PrismaClient();
 async function main() {
   const deletedPending = await prisma.pendingRegistration.deleteMany({});
   const deletedCodes = await prisma.emailVerificationCode.deleteMany({});
+  const deletedResets = await prisma.pendingPasswordReset.deleteMany({});
 
   console.log("Cleared auth state:");
   console.log("  PendingRegistration deleted:", deletedPending.count);
   console.log("  EmailVerificationCode deleted:", deletedCodes.count);
+  console.log("  PendingPasswordReset deleted:", deletedResets.count);
   console.log("");
   console.log("Users in DB are unchanged. To remove test users, use Prisma Studio or:");
   console.log('  npx prisma studio  → delete from User table');

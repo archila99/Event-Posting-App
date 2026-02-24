@@ -28,8 +28,8 @@ export default function Login() {
   };
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-sm">
-      <Card>
+    <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
+      <Card className="shadow-sm">
         <CardHeader className="space-y-2">
           <CardTitle>Log in</CardTitle>
           <CardDescription>Access your Ticket Book account.</CardDescription>
@@ -44,8 +44,11 @@ export default function Login() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Password</label>
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+              <p className="text-xs text-muted-foreground">
+                <Link to="/forgot-password" className="underline">Forgot password?</Link>
+              </p>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full min-h-[44px] text-base" disabled={loading}>
               {loading ? "Signing in…" : "Sign in"}
             </Button>
             <p className="text-sm text-muted-foreground">

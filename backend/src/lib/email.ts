@@ -68,6 +68,24 @@ export async function sendVerificationCode(toEmail: string, code: string): Promi
   }
 }
 
+/** Send password reset code. Returns true if sent, false if SMTP not configured; throws on send failure. */
+export async function sendPasswordResetCode(toEmail: string, code: string): Promise<boolean> {
+  const subject = "Your Eventora password reset code";
+  const text = `Your password reset code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone. If you didn't request this, you can ignore this email.`;
+  const html = `<p>Your password reset code is: <strong>${code}</strong></p><p>This code expires in 10 minutes. Do not share it with anyone.</p><p>If you didn't request this, you can ignore this email.</p>`;
+
+  try {
+    const sent = await sendEmail(toEmail, subject, text, html);
+    if (!sent) {
+      console.log("[Email] Not configured — password reset code for", toEmail, ":", code);
+    }
+    return sent;
+  } catch (err) {
+    console.error("[Email] sendPasswordResetCode failed for", toEmail, ":", err instanceof Error ? err.message : err);
+    throw err;
+  }
+}
+
 export type EventCancellationRecipient = "attendee" | "artist";
 
 /** Send event cancellation notification. If SMTP not configured, logs to console. */

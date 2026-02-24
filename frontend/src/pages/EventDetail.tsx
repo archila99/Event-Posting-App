@@ -227,12 +227,12 @@ export default function EventDetail() {
         <Link to="/">← Events</Link>
       </p>
       <div className="card mb-4">
-        <div className="flex flex-wrap items-start gap-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:gap-6">
           {event.imageUrl && (
-            <img src={event.imageUrl} alt="" className="h-[200px] w-[200px] rounded-lg object-cover" />
+            <img src={event.imageUrl} alt="" className="h-[200px] w-full rounded-lg object-cover sm:h-[200px] sm:w-[200px]" />
           )}
-          <div className="min-w-[200px] flex-1">
-            <h1 className="mb-2 text-2xl font-semibold">{event.title || "Concert"}</h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="mb-2 text-xl font-semibold sm:text-2xl">{event.title || "Concert"}</h1>
             <p className="text-muted-foreground">
               {event.artist.name}[artist] · {event.location.name}
             </p>

@@ -5,10 +5,10 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { Role } from "../types.js";
 import { authMiddleware, type AuthPayload } from "../middleware/auth.js";
-import { sendVerificationCode } from "../lib/email.js";
+import { sendVerificationCode, sendPasswordResetCode } from "../lib/email.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret";
-const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || "7d") as SignOptions["expiresIn"];
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || "20m") as SignOptions["expiresIn"];
 const CODE_EXPIRY_MINUTES = 10;
 
 function generateCode(): string {
@@ -34,6 +34,16 @@ const resendSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email().transform((s) => s.trim().toLowerCase()),
   password: z.string(),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email().transform((s) => s.trim().toLowerCase()),
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email().transform((s) => s.trim().toLowerCase()),
+  code: z.string().transform((s) => s.trim().replace(/\D/g, "").slice(0, 6)).refine((s) => s.length === 6, "Code must be 6 digits"),
+  newPassword: z.string().min(6, "Password must be at least 6 characters"),
 });
 
 export const authRouter = Router();
@@ -237,6 +247,83 @@ authRouter.post("/login", async (req, res, next) => {
     });
   } catch (e) {
     console.error("[login] error:", e instanceof Error ? e.message : e);
+    next(e);
+  }
+});
+
+// --- FORGOT PASSWORD: send 6-digit code to email (only if user exists; don't reveal otherwise) ---
+authRouter.post("/forgot-password", async (req, res, next) => {
+  try {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Valid email required" });
+    }
+    const { email } = parsed.data;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.deletedAt) {
+      return res.json({ message: "If an account exists with this email, we sent a password reset code. Check your inbox and spam." });
+    }
+
+    const code = generateCode();
+    const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000);
+    await prisma.pendingPasswordReset.upsert({
+      where: { email },
+      create: { email, code, expiresAt },
+      update: { code, expiresAt },
+    });
+
+    let emailSent = false;
+    try {
+      emailSent = await sendPasswordResetCode(email, code);
+    } catch (err) {
+      console.error("[forgot-password] Email send failed:", err instanceof Error ? err.message : err);
+      return res.status(503).json({ error: "Failed to send reset code. Try again later." });
+    }
+
+    return res.json({
+      message: emailSent
+        ? "If an account exists with this email, we sent a password reset code. Check your inbox and spam."
+        : "Email could not be sent. Please try again later or contact support.",
+      expiresInMinutes: CODE_EXPIRY_MINUTES,
+    });
+  } catch (e) {
+    console.error("[forgot-password] error:", e instanceof Error ? e.message : e);
+    next(e);
+  }
+});
+
+// --- RESET PASSWORD: verify code then overwrite user password ---
+authRouter.post("/reset-password", async (req, res, next) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const msg = parsed.error.errors[0]?.message ?? "Invalid input";
+      return res.status(400).json({ error: msg });
+    }
+    const { email, code, newPassword } = parsed.data;
+
+    const pending = await prisma.pendingPasswordReset.findUnique({ where: { email } });
+    if (!pending) {
+      return res.status(400).json({ error: "No password reset requested for this email. Request a new code." });
+    }
+    if (new Date() > pending.expiresAt) {
+      await prisma.pendingPasswordReset.deleteMany({ where: { email } });
+      return res.status(400).json({ error: "Reset code has expired. Request a new code." });
+    }
+    if (pending.code !== code) {
+      return res.status(400).json({ error: "Code does not match. Please check and try again." });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.user.update({ where: { email }, data: { password: passwordHash } }),
+      prisma.pendingPasswordReset.delete({ where: { email } }),
+    ]);
+
+    return res.json({ message: "Password updated. You can now log in with your new password." });
+  } catch (e) {
+    console.error("[reset-password] error:", e instanceof Error ? e.message : e);
     next(e);
   }
 });

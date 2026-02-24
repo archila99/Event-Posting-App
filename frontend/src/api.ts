@@ -67,6 +67,16 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
+  forgotPassword: (email: string) =>
+    api<{ message: string; expiresInMinutes?: number }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (email: string, code: string, newPassword: string) =>
+    api<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ email, code, newPassword }),
+    }),
 };
 
 export const locations = {

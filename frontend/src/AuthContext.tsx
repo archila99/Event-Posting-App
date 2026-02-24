@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { auth, type User } from "./api";
 
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days - persisted so user does not need to re-auth every time
+const SESSION_DURATION_MS = 20 * 60 * 1000; // 20 minutes - then user must log in again with email and password
 
 const SESSION_EXPIRES_KEY = "sessionExpiresAt";
 
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("auth-unauthorized", onUnauthorized);
   }, [logout]);
 
-  // Log out when session time limit is reached (e.g. 20 min), even if idle
+  // Log out when session time limit is reached (20 min)
   useEffect(() => {
     const interval = setInterval(() => {
       const expiresAt = localStorage.getItem(SESSION_EXPIRES_KEY);

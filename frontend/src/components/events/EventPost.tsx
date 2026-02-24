@@ -41,8 +41,8 @@ function EventPostInner({ e, viewerRole }: { e: EventItem; viewerRole?: Role }) 
       )}
 
       <div className="px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">{e.title || "Concert"}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
               {e.timeSlot.name} ({e.timeSlot.startTime}–{e.timeSlot.endTime}) ·{" "}
@@ -52,7 +52,7 @@ function EventPostInner({ e, viewerRole }: { e: EventItem; viewerRole?: Role }) 
               <p className="mt-2 line-clamp-2 text-sm text-foreground/90">{e.description}</p>
             )}
           </div>
-          <Button asChild size="sm" className="shrink-0">
+          <Button asChild size="sm" className="h-10 min-h-[44px] w-full shrink-0 sm:w-auto sm:min-w-[100px]">
             <Link to={"/events/" + e.id}>{canReserve ? "View & reserve" : "View"}</Link>
           </Button>
         </div>

@@ -37,14 +37,14 @@ export default function Home() {
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Events</h1>
           <p className="text-sm text-muted-foreground">Browse upcoming concerts and view event details.</p>
         </div>
-        <div className="w-full sm:w-[220px]">
+        <div className="w-full min-w-0 sm:w-[220px]">
           <label className="mb-2 block text-sm font-medium text-muted-foreground">Date</label>
-          <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+          <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="min-h-[44px]" />
         </div>
       </div>
       {loading ? (
@@ -59,7 +59,7 @@ export default function Home() {
       ) : list.length === 0 ? (
         <p className="text-sm text-muted-foreground">No events found for this date.</p>
       ) : (
-        <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-4 pb-8">
           {list.map((e) => (
             <EventPost key={e.id} e={e} viewerRole={user?.role} />
           ))}

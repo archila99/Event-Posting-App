@@ -97,8 +97,8 @@ export default function Register() {
 
   if (pendingVerification) {
     return (
-      <div className="mx-auto mt-10 w-full max-w-sm">
-        <Card>
+      <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
+        <Card className="shadow-sm">
           <CardHeader className="space-y-2">
             <CardTitle>Verify your email</CardTitle>
             <CardDescription>
@@ -128,13 +128,13 @@ export default function Register() {
                   className="w-32 font-mono tracking-[0.25em]"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={verifyCode.length !== 6 || verifyLoading}>
+              <Button type="submit" className="w-full min-h-[44px] text-base" disabled={verifyCode.length !== 6 || verifyLoading}>
                 {verifyLoading ? "Verifying…" : "Verify and continue"}
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                className="w-full"
+                className="w-full min-h-[44px] text-base"
                 disabled={resendLoading || resendCooldown > 0}
                 onClick={handleResendCode}
               >
@@ -148,8 +148,8 @@ export default function Register() {
   }
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-sm">
-      <Card>
+    <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
+      <Card className="shadow-sm">
         <CardHeader className="space-y-2">
           <CardTitle>Create account</CardTitle>
           <CardDescription>Join Ticket Book. We&apos;ll send a verification code to your email after you sign up.</CardDescription>
@@ -177,12 +177,12 @@ export default function Register() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Role</label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+              <select className="h-10 min-h-[44px] w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm" value={role} onChange={(e) => setRole(e.target.value as Role)}>
                 <option value="USER">User (buy tickets)</option>
                 <option value="ARTIST">Artist (post events)</option>
               </select>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full min-h-[44px] text-base" disabled={loading}>
               {loading ? "Creating account…" : "Register"}
             </Button>
             <p className="text-sm text-muted-foreground">

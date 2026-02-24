@@ -80,8 +80,8 @@ export default function VerifyEmail() {
   }
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-sm">
-      <Card>
+    <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
+      <Card className="shadow-sm">
         <CardHeader className="space-y-2">
           <CardTitle>Verify your email</CardTitle>
           <CardDescription>
@@ -116,13 +116,13 @@ export default function VerifyEmail() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Button type="submit" className="w-full" disabled={verifyCode.length !== 6 || !email.trim() || verifyLoading}>
+              <Button type="submit" className="w-full min-h-[44px] text-base" disabled={verifyCode.length !== 6 || !email.trim() || verifyLoading}>
                 {verifyLoading ? "Verifying…" : "Verify and continue"}
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                className="w-full"
+                className="w-full min-h-[44px] text-base"
                 disabled={resendLoading || resendCooldown > 0 || !email.trim()}
                 onClick={handleResend}
               >

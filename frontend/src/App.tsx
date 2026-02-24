@@ -12,6 +12,8 @@ import ArtistDashboard from "./pages/ArtistDashboard";
 import MyReservations from "./pages/MyReservations";
 import MyTickets from "./pages/MyTickets";
 import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 function PrivateRoute({
   children,
@@ -50,6 +52,8 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/" element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="events/:id" element={<EventDetail />} />
