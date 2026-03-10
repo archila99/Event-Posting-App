@@ -86,7 +86,6 @@ After running `npm run db:seed`:
 
 | Role   | Email                 | Password    |
 |--------|------------------------|------------|
-| Admin  | admin@ticketbook.com   | password123 |
 | Artist | artist@ticketbook.com  | password123 |
 | User   | user@ticketbook.com    | password123 |
 
