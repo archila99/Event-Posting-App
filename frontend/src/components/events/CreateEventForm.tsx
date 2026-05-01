@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { events, locations, timeSlots, uploadEventImage } from "../../api";
+import { events, locations, timeSlots } from "../../api";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import { EVENT_IMAGES, type EventImage } from "../../constants/eventImages";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -22,11 +23,10 @@ export function CreateEventForm({ onSuccess, onCancel }: CreateEventFormProps) {
     date: "",
     timeSlotId: "",
     capacity: 100,
-    imageUrl: "",
+    imageUrl: EVENT_IMAGES[0] as EventImage,
   });
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,11 +54,7 @@ export function CreateEventForm({ onSuccess, onCancel }: CreateEventFormProps) {
     try {
       const title = titleRef.current?.value?.trim() || undefined;
       const description = descriptionRef.current?.value?.trim() || undefined;
-      let imageUrl = form.imageUrl.trim() || undefined;
-      if (imageFile) {
-        const { url } = await uploadEventImage(imageFile);
-        imageUrl = url;
-      }
+      const imageUrl = form.imageUrl;
       await events.create({
         locationId: form.locationId,
         date: form.date,
@@ -81,31 +77,33 @@ export function CreateEventForm({ onSuccess, onCancel }: CreateEventFormProps) {
       <form onSubmit={handleSubmit} className="grid gap-0 md:grid-cols-2">
         <div className="border-b bg-muted/40 p-4 md:border-b-0 md:border-r">
           <div className="text-sm font-semibold">Create post</div>
-          <p className="mt-1 text-xs text-muted-foreground">Add an image (optional) and event details.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Choose an image and event details.</p>
           <div className="mt-4">
-            {imageFile ? (
-              <div className="aspect-square w-full overflow-hidden rounded-md border bg-background">
-                <img src={URL.createObjectURL(imageFile)} alt="" className="h-full w-full object-cover" />
-              </div>
-            ) : (
-              <div className="grid aspect-square w-full place-items-center rounded-md border bg-background text-sm text-muted-foreground">
-                Image preview
-              </div>
-            )}
+            <div className="aspect-square w-full overflow-hidden rounded-md border bg-background">
+              <img src={form.imageUrl} alt="" className="h-full w-full object-cover" />
+            </div>
           </div>
           <div className="mt-4 space-y-2">
-            <label className="text-sm font-medium text-muted-foreground">Event photo (optional)</label>
-            <Input
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                setImageFile(f || null);
-                if (!f) setForm((prev) => ({ ...prev, imageUrl: "" }));
-              }}
-            />
-            <div className="text-xs text-muted-foreground">Or paste image URL:</div>
-            <Input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="https://..." />
+            <label className="text-sm font-medium text-muted-foreground">Event image</label>
+            <div className="grid grid-cols-3 gap-2">
+              {EVENT_IMAGES.map((src) => {
+                const selected = form.imageUrl === src;
+                return (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, imageUrl: src }))}
+                    className={[
+                      "overflow-hidden rounded-md border",
+                      selected ? "ring-2 ring-ring shadow-sm scale-[1.02]" : "opacity-90 hover:opacity-100",
+                    ].join(" ")}
+                    aria-pressed={selected}
+                  >
+                    <img src={src} alt="" className="aspect-square w-full object-cover" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -163,7 +161,7 @@ export function CreateEventForm({ onSuccess, onCancel }: CreateEventFormProps) {
               <Textarea ref={descriptionRef} defaultValue="" name="description" rows={3} placeholder="Describe your event (optional)" />
             </div>
             <div className="flex gap-2">
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting || !form.imageUrl}>
                 {submitting ? "Posting…" : "Post"}
               </Button>
               <Button type="button" variant="secondary" onClick={onCancel}>

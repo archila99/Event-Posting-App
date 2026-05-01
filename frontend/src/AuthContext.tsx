@@ -1,18 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { auth, type User } from "./api";
+import { auth, refreshAccessToken, type User } from "./api";
 
-const SESSION_DURATION_MS = 20 * 60 * 1000; // 20 minutes - then user must log in again with email and password
-
-const SESSION_EXPIRES_KEY = "sessionExpiresAt";
-
-/** Call after storing the token (e.g. on register). Keeps session limit in sync with backend. */
-export function setSessionExpiry() {
-  localStorage.setItem(SESSION_EXPIRES_KEY, String(Date.now() + SESSION_DURATION_MS));
-}
-
-function clearSession() {
+function clearAccessToken() {
   localStorage.removeItem("token");
-  localStorage.removeItem(SESSION_EXPIRES_KEY);
 }
 
 type AuthContextValue = {
@@ -30,32 +20,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
-    clearSession();
+    void auth.logout();
+    clearAccessToken();
     setUser(null);
   }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-    const expiresAt = localStorage.getItem(SESSION_EXPIRES_KEY);
-    if (expiresAt && Date.now() > Number(expiresAt)) {
-      clearSession();
-      setUser(null);
-      setLoading(false);
-      return;
-    }
     try {
-      const u = await auth.me(signal);
-      setUser(u);
+      let token = localStorage.getItem("token");
+      if (!token) {
+        const renewed = await refreshAccessToken(signal);
+        if (!renewed) {
+          setUser(null);
+          return;
+        }
+        token = localStorage.getItem("token");
+      }
+      if (!token) {
+        setUser(null);
+        return;
+      }
+      try {
+        const u = await auth.me(signal);
+        setUser(u);
+      } catch {
+        const ok = await refreshAccessToken(signal);
+        if (ok) {
+          const u = await auth.me(signal);
+          setUser(u);
+        } else {
+          setUser(null);
+        }
+      }
     } catch (err) {
       if ((err as { name?: string })?.name === "AbortError") return;
-      const msg = String((err as Error)?.message ?? "").toLowerCase();
-      const isAuthError = msg.includes("unauthorized") || msg.includes("401");
-      if (isAuthError) clearSession();
       setUser(null);
     } finally {
       setLoading(false);
@@ -77,21 +75,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("auth-unauthorized", onUnauthorized);
   }, [logout]);
 
-  // Log out when session time limit is reached (20 min)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const expiresAt = localStorage.getItem(SESSION_EXPIRES_KEY);
-      if (expiresAt && Date.now() > Number(expiresAt)) {
-        logout();
-      }
-    }, 30 * 1000); // check every 30 seconds
-    return () => clearInterval(interval);
-  }, [logout]);
-
   const login = async (email: string, password: string) => {
     const { user: u, token } = await auth.login(email, password);
     localStorage.setItem("token", token);
-    setSessionExpiry();
     setUser(u);
   };
 

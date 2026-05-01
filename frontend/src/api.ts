@@ -1,7 +1,52 @@
-const API = "/api";
+const BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+if (import.meta.env.PROD && !BASE_URL) {
+  throw new Error("VITE_API_URL is required in production (must point to the backend base URL).");
+}
+const API = BASE_URL + "/api";
+
+const NO_REFRESH_PATHS = new Set([
+  "/auth/refresh",
+  "/auth/login",
+  "/auth/register",
+  "/auth/verify-email",
+  "/auth/resend-verification-code",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/auth/logout",
+]);
+
+let refreshInFlight: Promise<boolean> | null = null;
 
 function getToken(): string | null {
   return localStorage.getItem("token");
+}
+
+/** Silent renewal via HttpOnly refresh cookie. Deduplicates concurrent refresh calls. */
+export async function refreshAccessToken(signal?: AbortSignal): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${API}/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.token) {
+          localStorage.removeItem("token");
+          return false;
+        }
+        localStorage.setItem("token", data.token);
+        return true;
+      } catch {
+        localStorage.removeItem("token");
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
 }
 
 export type Role = "ADMIN" | "ARTIST" | "USER";
@@ -15,18 +60,21 @@ export interface User {
   createdAt?: string;
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+export async function api<T>(path: string, options: RequestInit = {}, isRetry = false): Promise<T> {
   const token = getToken();
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...options.headers,
   };
   if (token) (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(API + path, { ...options, headers });
+  const res = await fetch(API + path, { ...options, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && !NO_REFRESH_PATHS.has(path) && !isRetry) {
+    const refreshed = await refreshAccessToken(options.signal as AbortSignal | undefined);
+    if (refreshed) return api<T>(path, options, true);
+  }
+
   if (res.status === 401) {
     localStorage.removeItem("token");
     window.dispatchEvent(new Event("auth-unauthorized"));
@@ -77,6 +125,8 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ email, code, newPassword }),
     }),
+  logout: () =>
+    fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => undefined),
 };
 
 export const locations = {
@@ -159,24 +209,6 @@ export const comments = {
   delete: (eventId: string, commentId: string) =>
     api<{ message: string }>("/events/" + eventId + "/comments/" + commentId, { method: "DELETE" }),
 };
-
-export async function uploadEventImage(file: File): Promise<{ url: string }> {
-  const token = localStorage.getItem("token");
-  const formData = new FormData();
-  formData.append("image", file);
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    localStorage.removeItem("token");
-    window.dispatchEvent(new Event("auth-unauthorized"));
-  }
-  if (!res.ok) throw new Error(data.error || "Upload failed");
-  return data;
-}
 
 export const reservations = {
   my: (signal?: AbortSignal) =>

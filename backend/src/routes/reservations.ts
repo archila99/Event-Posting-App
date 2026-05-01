@@ -64,38 +64,43 @@ reservationsRouter.post("/", async (req: express.Request & { user?: { userId: st
     return res.status(403).json({ error: "Only user accounts can reserve tickets. Artists and admins can view events only." });
   }
 
-  const event = await prisma.event.findUnique({ where: { id: eventId }, include: { location: true } });
-  if (!event) return res.status(404).json({ error: "Event not found" });
-  if (event.status !== "APPROVED") {
-    return res.status(400).json({ error: `Event is not open for reservations (status: ${event.status}). Only approved events can be reserved.` });
-  }
-
-  const existingActive = await prisma.reservation.findFirst({
-    where: { eventId, userId, status: "ACTIVE" },
-  });
-  if (existingActive) return res.status(400).json({ error: "You already have an active reservation for this event" });
-
-  const userTotalForEvent = await prisma.ticket.count({
-    where: {
-      eventId,
-      OR: [{ userId }, { reservation: { userId } }],
-      status: { in: ["RESERVED", "SOLD"] },
-    },
-  });
-  if (userTotalForEvent + quantity > MAX_TICKETS_PER_USER_PER_EVENT) {
-    return res.status(400).json({
-      error: `Maximum ${MAX_TICKETS_PER_USER_PER_EVENT} tickets per user per event. You have ${userTotalForEvent} reserved or sold.`,
-    });
-  }
-
   const expiresAt = new Date(Date.now() + RESERVATION_EXPIRY_MINUTES * 60 * 1000);
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // Serialize capacity decisions per event to prevent overselling under concurrency.
+      const locked = await tx.$queryRaw<Array<{ capacity: number; status: string }>>`
+        SELECT capacity, status
+        FROM "Event"
+        WHERE id = ${eventId}
+        FOR UPDATE
+      `;
+      const row = locked[0];
+      if (!row) throw new Error("EVENT_NOT_FOUND");
+      if (row.status !== "APPROVED") {
+        throw new Error(`EVENT_NOT_OPEN:${row.status}`);
+      }
+
+      const existingActive = await tx.reservation.findFirst({
+        where: { eventId, userId, status: "ACTIVE" },
+      });
+      if (existingActive) throw new Error("ACTIVE_RESERVATION_EXISTS");
+
+      const userTotalForEvent = await tx.ticket.count({
+        where: {
+          eventId,
+          OR: [{ userId }, { reservation: { userId } }],
+          status: { in: ["RESERVED", "SOLD"] },
+        },
+      });
+      if (userTotalForEvent + quantity > MAX_TICKETS_PER_USER_PER_EVENT) {
+        throw new Error(`USER_TICKET_LIMIT:${userTotalForEvent}`);
+      }
+
       const taken = await tx.ticket.count({
         where: { eventId, status: { in: ["RESERVED", "SOLD"] } },
       });
-      const available = event.capacity - taken;
+      const available = row.capacity - taken;
       if (quantity > available) {
         throw new Error("NOT_ENOUGH_CAPACITY");
       }
@@ -122,8 +127,26 @@ reservationsRouter.post("/", async (req: express.Request & { user?: { userId: st
     await auditLog("RESERVATION_CREATED", "Reservation", result.id, userId, JSON.stringify({ quantity, expiresAt: expiresAt.toISOString() }));
     return res.status(201).json(result);
   } catch (e: unknown) {
-    if (e instanceof Error && e.message === "NOT_ENOUGH_CAPACITY") {
-      return res.status(409).json({ error: "Not enough tickets available" });
+    if (e instanceof Error) {
+      if (e.message === "EVENT_NOT_FOUND") return res.status(404).json({ error: "Event not found" });
+      if (e.message.startsWith("EVENT_NOT_OPEN:")) {
+        const status = e.message.split(":")[1] ?? "UNKNOWN";
+        return res.status(400).json({
+          error: `Event is not open for reservations (status: ${status}). Only approved events can be reserved.`,
+        });
+      }
+      if (e.message === "ACTIVE_RESERVATION_EXISTS") {
+        return res.status(400).json({ error: "You already have an active reservation for this event" });
+      }
+      if (e.message.startsWith("USER_TICKET_LIMIT:")) {
+        const have = Number(e.message.split(":")[1] ?? "0");
+        return res.status(400).json({
+          error: `Maximum ${MAX_TICKETS_PER_USER_PER_EVENT} tickets per user per event. You have ${have} reserved or sold.`,
+        });
+      }
+      if (e.message === "NOT_ENOUGH_CAPACITY") {
+        return res.status(409).json({ error: "Not enough tickets available" });
+      }
     }
     throw e;
   }

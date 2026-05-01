@@ -7,10 +7,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function getEmailConfig() {
   dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
-  const SMTP_HOST = process.env.SMTP_HOST;
+  const SMTP_HOST = process.env.SMTP_HOST?.trim();
   const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
-  const SMTP_USER = process.env.SMTP_USER;
-  const SMTP_PASS = process.env.SMTP_PASS;
+  const SMTP_USER = process.env.SMTP_USER?.trim();
+  const SMTP_PASS = process.env.SMTP_PASS?.trim();
   const EMAIL_FROM = (process.env.EMAIL_FROM || process.env.SMTP_USER || "noreply@ticketbook.com").trim();
   return { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM };
 }

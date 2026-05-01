@@ -93,14 +93,17 @@ The seed also creates time slots (Slot A, Slot B) and locations (London Stadium,
 
 ## Environment
 
-Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For Cloud Run, use `.env.deploy` and `deploy.sh` (see [Deploy to Google Cloud Run](#deploy-to-google-cloud-run)). Main variables:
+Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For production deployment (Render + Vercel + Supabase), see `DEPLOYMENT.md`. Main variables:
 
-- `DATABASE_URL` – PostgreSQL connection string, e.g. `postgresql://user:password@localhost:5432/ticket_book`
-- `JWT_SECRET` – Secret for JWT signing (use a strong value in production)
-- `JWT_EXPIRES_IN` – Token/session lifetime (default `20m`; user must log in again after it expires; use `7d` for longer sessions)
+- `DATABASE_URL` – PostgreSQL connection string (Supabase should include `?sslmode=require`)
+- `DIRECT_URL` – Optional direct DB connection string for migrations (recommended with Supabase pooler)
+- `JWT_ACCESS_SECRET` – Access token signing secret
+- `JWT_REFRESH_SECRET` – Refresh token hashing/validation secret
+- `ACCESS_TOKEN_EXPIRES_IN` – Access token lifetime (default `15m`)
+- `REFRESH_TOKEN_EXPIRES_IN` – Refresh token lifetime (default `7d`)
 - `PORT` – Backend port (default `3001`)
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
-- `GCS_BUCKET` – (Optional) Google Cloud Storage bucket name for event images. If set, uploads go to GCS (bucket stays **private**); the API serves images via a proxy route (`/api/events/:id/image`) so the frontend can display them without making the bucket public. Otherwise files are saved under `backend/uploads/` and served at `/api/uploads/`. On Cloud Run, set this so images persist across deploys.
+- Uploads are stored under `backend/uploads/` and served at `/api/uploads/` by default (may be ephemeral in production hosts).
 
 ### Email
 
@@ -141,71 +144,21 @@ Concurrent load tests use [k6](https://k6.io/) with optional metrics in Grafana.
 ## Deployment checklist (before first deploy)
 
 - Run `npm run db:push` (and `npm run db:seed` if needed) so the database has all tables, including `PendingRegistration` and `PendingPasswordReset`.
-- Set `backend/.env` locally (and `.env.deploy` for Cloud Run) with `DATABASE_URL`, `JWT_SECRET`, and SMTP vars if you need email.
-- For Cloud Run: run `./deploy-db-setup.sh` once so Cloud SQL has the schema and seed; then `./deploy.sh`.
-
-## Deploy to Google Cloud Run
-
-The app runs as a single container (backend + frontend) on [Cloud Run](https://cloud.google.com/run). **Same behaviour as local**: 20‑minute session, email verification, forgot password, reservations, SMTP. Use `deploy.sh` and `.env.deploy` for a one-command deploy.
-
-### Prerequisites
-
-- [Google Cloud SDK (gcloud)](https://cloud.google.com/sdk/docs/install) installed and logged in: `gcloud auth login`
-- A Google Cloud project and a **Cloud SQL for PostgreSQL** instance with a database created (e.g. `eventora_db`)
-- Database user and password (e.g. set via `gcloud sql users set-password postgres --instance=INSTANCE --password=...`)
-
-### 1. One-time: create deploy config
-
-```bash
-cp .env.deploy.example .env.deploy
-```
-
-Edit `.env.deploy` and set at least:
-
-- **`DB_PASSWORD`** – PostgreSQL user password for Cloud SQL
-- **`JWT_SECRET`** – Strong random string (e.g. 32+ chars)
-
-Optionally set `GCP_PROJECT`, `GCP_REGION`, `CLOUD_SQL_INSTANCE`, `DB_NAME`, `DB_USER`, `SERVICE_NAME` (defaults are in the file). **For verification emails on Cloud Run** you must set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM` in `.env.deploy` (Cloud Run does not use `backend/.env`); use the same values as in your local `backend/.env`, then run `./deploy.sh` again. For same behaviour as local you can set `JWT_EXPIRES_IN=20m` and `RESERVATION_EXPIRY_MINUTES=10` (these are the script defaults if omitted).
-
-### 2. One-time: database schema and seed
-
-From repo root (with `.env.deploy` loaded, `DB_PASSWORD` set):
-
-```bash
-chmod +x deploy-db-setup.sh
-./deploy-db-setup.sh
-```
-
-This runs `prisma db push` and `prisma db seed` against your Cloud SQL instance (uses public IP from `gcloud` if `INSTANCE_IP` is not set). If you get **P1001 (Can't reach database server)**, add your IP in GCP Console under SQL → your instance → **Connections → Authorized networks**, or set **`USE_PROXY=1`** in `.env.deploy` and install [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy); the script will then connect via the proxy.
-
-### 3. Deploy (or redeploy)
-
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
-
-`deploy.sh` builds `DATABASE_URL` for Cloud SQL Unix socket, enables APIs, and runs `gcloud run deploy --source .` with env vars from `.env.deploy`. It passes `NODE_ENV=production`, `JWT_SECRET`, `DATABASE_URL`, `JWT_EXPIRES_IN` (default `20m`), `RESERVATION_EXPIRY_MINUTES` (default `10`), and optional `FRONTEND_URL`, SMTP vars. Cloud Run sets `PORT` (8080) automatically. After deploy, open the service URL in your browser; the app works the same as local (register, verify email, login, forgot password, reservations, SMTP when configured).
-
-### Optional
-
-- **Keep one instance warm** (avoid cold-start 503): in `.env.deploy` set `MIN_INSTANCES=1`.
-- **Event images on Cloud Run**: Keep your bucket **private**. Set `GCS_BUCKET=your-bucket-name` in `.env.deploy` and redeploy. Grant the Cloud Run service account **Storage Object Admin** on the bucket. The API serves images via `/api/events/:id/image` (proxy), so the frontend displays `event.imageUrl` in event cards without exposing the bucket.
-- **Manual deploy** (without `deploy.sh`): pass env vars with `gcloud run deploy ... --set-env-vars` or `--env-vars-file`. Use `--add-cloudsql-instances PROJECT:REGION:INSTANCE` and `DATABASE_URL` with `?host=/cloudsql/PROJECT:REGION:INSTANCE`.
-- **Secret Manager**: store `DATABASE_URL` and `JWT_SECRET` in Secret Manager and use `--set-secrets` instead of env vars.
+- Set `backend/.env` locally with `DATABASE_URL` and auth secrets (see `backend/.env.example`).
+- For production deployment (Render + Vercel + Supabase), see `DEPLOYMENT.md`.
 
 ## Pushing to GitHub
 
-The repo is set up to be safe to push: `.gitignore` excludes secrets, env files with credentials, build output, and IDE/OS cruft. Only template env files (e.g. `backend/.env.example`, `.env.deploy.example`) are committed.
+The repo is set up to be safe to push: `.gitignore` excludes secrets, env files with credentials, build output, and IDE/OS cruft. Only template env files (e.g. `backend/.env.example`, `frontend/.env.example`) are committed.
 
 1. **Before first push**  
-   Ensure `backend/.env` and `.env.deploy` are **not** staged (they contain secrets). Run `git status` and confirm they do not appear.
+   Ensure `backend/.env` is **not** staged (it contains secrets). Run `git status` and confirm it does not appear.
 
 2. **Initialize and push** (if the repo is not yet on GitHub):
    ```bash
    git init
    git add .
-   git status   # confirm backend/.env and .env.deploy do not appear
+   git status   # confirm backend/.env does not appear
    git commit -m "Initial commit: Ticket Book app"
    git branch -M main
    git remote add origin https://github.com/YOUR_USERNAME/Ticket_Book.git

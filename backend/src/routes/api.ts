@@ -32,16 +32,10 @@ apiRouter.get("/health/db", async (_req, res) => {
   }
 });
 
-// Check if Cloud Run is using GCS for event images (no secrets exposed)
 apiRouter.get("/health/storage", (_req, res) => {
-  const bucket = process.env.GCS_BUCKET?.trim() || null;
   res.json({
     ok: true,
-    gcsConfigured: !!bucket,
-    gcsBucket: bucket,
-    message: bucket
-      ? "Event images will be stored in GCS and persist across deploys."
-      : "GCS_BUCKET not set. Event images use ephemeral storage and will not persist. Set GCS_BUCKET in .env.deploy and redeploy.",
+    message: "Event images are served from /api/uploads for local disk storage. Configure external storage separately if needed.",
   });
 });
 

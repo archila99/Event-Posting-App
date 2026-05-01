@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
+import { getAccessTokenSecret } from "../lib/accessToken.js";
 import type { Role } from "../types.js";
-
-const JWT_SECRET = process.env.JWT_SECRET || "secret";
 
 export interface AuthPayload {
   userId: string;
@@ -18,7 +17,7 @@ export function authMiddleware(req: Request & { user?: AuthPayload }, res: Respo
   }
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthPayload;
+    const payload = jwt.verify(token, getAccessTokenSecret()) as AuthPayload;
     req.user = payload;
     next();
   } catch {
@@ -57,7 +56,7 @@ export function optionalAuth(req: Request & { user?: AuthPayload }, res: Respons
   if (!header?.startsWith("Bearer ")) return next();
   const token = header.slice(7);
   try {
-    req.user = jwt.verify(token, JWT_SECRET) as AuthPayload;
+    req.user = jwt.verify(token, getAccessTokenSecret()) as AuthPayload;
   } catch {
     // ignore
   }

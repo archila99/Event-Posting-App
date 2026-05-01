@@ -1,6 +1,6 @@
-# Ticket Book — Google Cloud Run (single container: backend + frontend)
+# Ticket Book — production container (backend serves frontend static build)
 # Build: docker build -t ticket-book .
-# Run locally: docker run -p 8080:8080 -e DATABASE_URL=... -e JWT_SECRET=... ticket-book
+# Run locally: docker run -p 3001:3001 -e DATABASE_URL=... -e JWT_ACCESS_SECRET=... -e JWT_REFRESH_SECRET=... ticket-book
 
 # ---- Frontend ----
 FROM node:20-alpine AS frontend
@@ -19,7 +19,6 @@ COPY backend/ .
 RUN npx prisma generate && npm run build
 
 # ---- Production ----
-# Use Bullseye (Debian 11) - has OpenSSL 1.1; Cloud Run runtime expects debian-openssl-1.1.x
 FROM node:20-bullseye-slim AS production
 WORKDIR /app/backend
 
@@ -28,13 +27,11 @@ COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=backend /app/backend/dist ./dist
 COPY backend/prisma ./prisma
-# Generate Prisma client for Debian + OpenSSL 1.1 (Bullseye has libssl.so.1.1)
-RUN sed -i 's/binaryTargets = .*/binaryTargets = ["debian-openssl-1.1.x"]/' prisma/schema.prisma && npx prisma generate
+RUN npx prisma generate
 
 # Frontend static (served by Express in production)
 COPY --from=frontend /app/frontend/dist ./public
 
-# Cloud Run uses PORT (default 8080)
 ENV NODE_ENV=production
-EXPOSE 8080
+EXPOSE 3001
 CMD ["node", "dist/index.js"]

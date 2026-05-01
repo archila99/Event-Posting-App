@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../api";
 import type { Role } from "../api";
-import { useAuth, setSessionExpiry } from "../AuthContext";
+import { useAuth } from "../AuthContext";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -40,12 +40,14 @@ export default function Register() {
     setError("");
     setLoading(true);
     try {
+      const emailNorm = email.trim().toLowerCase();
       const { message, emailError: errMsg } = await auth.register({
-        email,
+        email: emailNorm,
         password,
         name,
         role,
       });
+      setEmail(emailNorm);
       logout();
       setEmailSent(!errMsg && (message ?? "").includes("sent to your email"));
       setEmailError(errMsg ?? null);
@@ -69,7 +71,6 @@ export default function Register() {
     try {
       const { token } = await auth.verifyEmail(emailNorm, code);
       localStorage.setItem("token", token);
-      setSessionExpiry();
       await refresh();
       setPendingVerification(false);
       navigate("/dashboard");

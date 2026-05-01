@@ -32,8 +32,13 @@ export default function ForgotPassword() {
         <Card className="shadow-sm">
           <CardHeader className="space-y-2">
             <CardTitle>Check your email</CardTitle>
-            <CardDescription>
-              If an account exists with <strong>{email}</strong>, we sent a 6-digit password reset code. Check your inbox and spam folder. The code expires in 10 minutes.
+            <CardDescription className="space-y-2">
+              <p>
+                If an account exists with <strong>{email}</strong>, we sent a 6-digit password reset code. Check your inbox and spam folder. The code expires in 10 minutes.
+              </p>
+              <p className="text-muted-foreground">
+                Forgot password only works after you have finished signup (you have a login). If you are still on the “verify email” step from Register, use that screen or “Resend code” there — not this page.
+              </p>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

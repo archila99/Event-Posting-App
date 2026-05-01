@@ -1,8 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "path";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import { apiRouter } from "./routes/api.js";
-import { uploadRouter } from "./routes/upload.js";
 
 type CreateAppOptions = {
   uploadsDir: string;
@@ -13,12 +13,28 @@ type CreateAppOptions = {
 export function createApp({ uploadsDir, frontendDir }: CreateAppOptions) {
   const app = express();
 
-  app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173", credentials: true }));
+  const isProd = process.env.NODE_ENV === "production";
+  const frontendUrl = (process.env.FRONTEND_URL || "").trim();
+  if (isProd && !frontendUrl) {
+    throw new Error("FRONTEND_URL must be set in production for CORS + cookie auth to work.");
+  }
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        // Allow non-browser requests (no Origin) like curl, server-to-server, health checks.
+        if (!origin) return cb(null, true);
+        const allowed = frontendUrl || "http://localhost:5173";
+        if (origin === allowed) return cb(null, true);
+        return cb(new Error(`CORS blocked origin: ${origin}`));
+      },
+      credentials: true,
+    })
+  );
+  app.use(cookieParser());
   app.use(express.json());
 
-  // Static + upload endpoints
+  // Static endpoint for legacy local uploads (no new uploads are accepted)
   app.use("/api/uploads", express.static(uploadsDir));
-  app.use("/api/upload", uploadRouter);
 
   // Main API router
   app.use("/api", apiRouter);

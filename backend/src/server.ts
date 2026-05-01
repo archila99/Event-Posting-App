@@ -4,8 +4,13 @@ import { fileURLToPath } from "url";
 import { createApp } from "./app.js";
 import { ensureDefaultLocationsAndSlots } from "./lib/ensureDefaults.js";
 import { startReservationExpiryJob } from "./jobs/expireReservations.js";
+import dotenv from "dotenv";
 
 export async function startServer() {
+  // In production (Render), env vars are injected by the platform.
+  // In local dev, src/index.ts loads backend/.env; this is a no-op if already loaded.
+  dotenv.config();
+
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const uploadsDir = path.join(__dirname, "..", "uploads");
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -26,7 +31,7 @@ export async function startServer() {
 
   startReservationExpiryJob();
 
-  // Listen immediately so Cloud Run sees the container as ready (then run DB init in background)
+  // Listen immediately (then run DB init in background)
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Ticket Book API running on port ${PORT}`);
     ensureDefaultLocationsAndSlots().catch((err) =>

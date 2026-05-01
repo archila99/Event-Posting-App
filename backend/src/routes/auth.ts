@@ -1,15 +1,31 @@
 import express, { Router } from "express";
 import bcrypt from "bcryptjs";
-import jwt, { type SignOptions } from "jsonwebtoken";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { Role } from "../types.js";
 import { authMiddleware, type AuthPayload } from "../middleware/auth.js";
 import { sendVerificationCode, sendPasswordResetCode } from "../lib/email.js";
+import { signAccessToken } from "../lib/accessToken.js";
+import {
+  clearRefreshTokenCookie,
+  generateRefreshTokenRaw,
+  hashRefreshToken,
+  parseDurationToMs,
+  REFRESH_COOKIE_NAME,
+  setRefreshTokenCookie,
+} from "../lib/refreshToken.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "secret";
-const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || "20m") as SignOptions["expiresIn"];
 const CODE_EXPIRY_MINUTES = 10;
+
+async function issueRefreshSession(res: express.Response, userId: string) {
+  const raw = generateRefreshTokenRaw();
+  const tokenHash = hashRefreshToken(raw);
+  const expiresMs = parseDurationToMs(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 86_400_000);
+  const expiresAt = new Date(Date.now() + expiresMs);
+  await prisma.refreshToken.create({
+    data: { userId, tokenHash, expiresAt },
+  });
+  setRefreshTokenCookie(res, raw);
+}
 
 function generateCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -47,6 +63,65 @@ const resetPasswordSchema = z.object({
 });
 
 export const authRouter = Router();
+
+authRouter.post("/refresh", async (req, res) => {
+  const raw = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (!raw || typeof raw !== "string") {
+    clearRefreshTokenCookie(res);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const tokenHash = hashRefreshToken(raw);
+  const existing = await prisma.refreshToken.findFirst({
+    where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } },
+    include: { user: { select: { id: true, email: true, role: true, deletedAt: true } } },
+  });
+  if (!existing?.user || existing.user.deletedAt) {
+    clearRefreshTokenCookie(res);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const newRaw = generateRefreshTokenRaw();
+  const newHash = hashRefreshToken(newRaw);
+  const expiresMs = parseDurationToMs(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 86_400_000);
+  const newExpiresAt = new Date(Date.now() + expiresMs);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.refreshToken.update({
+        where: { id: existing.id },
+        data: { revokedAt: new Date() },
+      });
+      await tx.refreshToken.create({
+        data: { userId: existing.userId, tokenHash: newHash, expiresAt: newExpiresAt },
+      });
+    });
+  } catch (e) {
+    console.error("[auth/refresh]", e instanceof Error ? e.message : e);
+    clearRefreshTokenCookie(res);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  setRefreshTokenCookie(res, newRaw);
+  const token = signAccessToken({
+    userId: existing.user.id,
+    email: existing.user.email,
+    role: existing.user.role,
+  });
+  return res.json({ token });
+});
+
+authRouter.post("/logout", async (req, res) => {
+  const raw = req.cookies?.[REFRESH_COOKIE_NAME];
+  clearRefreshTokenCookie(res);
+  if (raw && typeof raw === "string") {
+    const tokenHash = hashRefreshToken(raw);
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+  return res.json({ ok: true });
+});
 
 // --- REGISTER: temp data only (PendingRegistration). No User row until email is verified. ---
 authRouter.post("/register", async (req, res, next) => {
@@ -150,11 +225,12 @@ authRouter.post("/verify-email", async (req, res, next) => {
       return created;
     });
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role } as AuthPayload,
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    await issueRefreshSession(res, user.id);
+    const token = signAccessToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
     return res.status(201).json({
       success: true,
       user: { ...user, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null },
@@ -230,11 +306,12 @@ authRouter.post("/login", async (req, res, next) => {
     if (!user || user.deletedAt) return res.status(401).json({ error: "Invalid credentials" });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role } as AuthPayload,
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    await issueRefreshSession(res, user.id);
+    const token = signAccessToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
     return res.json({
       user: {
         id: user.id,
@@ -262,6 +339,10 @@ authRouter.post("/forgot-password", async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || user.deletedAt) {
+      // Do not reveal whether the email exists; also do not send mail.
+      console.log(
+        "[forgot-password] No active User for this email — not sending mail (same response as success). If you never finished signup, use Register → verify instead."
+      );
       return res.json({ message: "If an account exists with this email, we sent a password reset code. Check your inbox and spam." });
     }
 

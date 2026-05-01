@@ -1,6 +1,6 @@
 # Ticket Book – safe to push to GitHub
 # Do not commit: secrets, env files with credentials, build output, or IDE/OS files.
-# Committed templates: backend/.env.example, .env.deploy.example (no real secrets).
+# Committed templates: backend/.env.example, frontend/.env.example (no real secrets).
 
 # Dependencies
 node_modules/
@@ -9,13 +9,12 @@ node_modules/
 dist/
 build/
 
-# Environment – never commit (DB URL, JWT_SECRET, SMTP, GCS_BUCKET, etc.)
+# Environment – never commit (DB URL, JWT secrets, SMTP, etc.)
 .env
 .env.local
 .env.*.local
 !.env.example
 backend/.env
-.env.deploy
 
 # Database (project uses PostgreSQL; ignore SQLite leftovers)
 *.db
@@ -62,4 +61,3 @@ pnpm-debug.log*
 .yarn/
 .yarnrc.yml
 .env.backup
-.env.deploy.backup

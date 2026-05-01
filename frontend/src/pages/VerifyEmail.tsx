@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../api";
-import { useAuth, setSessionExpiry } from "../AuthContext";
+import { useAuth } from "../AuthContext";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -38,7 +38,6 @@ export default function VerifyEmail() {
     try {
       const { token } = await auth.verifyEmail(trimmedEmail, code);
       localStorage.setItem("token", token);
-      setSessionExpiry();
       await refresh();
       navigate("/dashboard");
     } catch (err: unknown) {

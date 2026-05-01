@@ -12,6 +12,8 @@ import { Role } from "../types.js";
 import { validateEventCreation } from "../services/eventValidation.js";
 import { auditLog } from "../lib/audit.js";
 
+import { EVENT_IMAGES } from "../constants/eventImages.js";
+
 const createEventSchema = z.object({
   locationId: z.string(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -19,7 +21,7 @@ const createEventSchema = z.object({
   capacity: z.number().int().positive(),
   title: z.string().optional(),
   description: z.string().optional(),
-  imageUrl: z.string().optional().transform((v) => (v && v.trim() ? v.trim() : undefined)),
+  imageUrl: z.string().optional(),
 });
 
 const createCommentSchema = z.object({
@@ -179,6 +181,10 @@ eventsRouter.post(
       const parsed = createEventSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
       const { locationId, date, timeSlotId, capacity, title, description, imageUrl } = parsed.data;
+      const img = typeof imageUrl === "string" ? imageUrl.trim() : "";
+      if (!img || !(EVENT_IMAGES as readonly string[]).includes(img)) {
+        return res.status(400).json({ error: "Invalid image selection" });
+      }
       const artistId = req.user!.userId;
       const validation = await validateEventCreation(artistId, locationId, date, timeSlotId, capacity);
       if (!validation.ok) return res.status(400).json({ error: validation.error });
@@ -191,7 +197,7 @@ eventsRouter.post(
           capacity,
           title: title || null,
           description: description || null,
-          imageUrl: imageUrl && imageUrl.length > 0 ? imageUrl : null,
+          imageUrl: img,
           status: "APPROVED",
         },
         include: {
