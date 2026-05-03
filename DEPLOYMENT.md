@@ -37,29 +37,32 @@ Create a **Web Service** from this repo with:
 - **Runtime**: Node
 
 ### Build command
-Install with dev dependencies so the Prisma CLI and TypeScript are available (`prisma` and `typescript` live in `devDependencies`):
+
+**Why you may see “This is not the tsc command you are looking for”**  
+Render sets `NODE_ENV=production` during install. A plain `npm ci` **omits `devDependencies`**, so **`typescript` is never installed** and `npx tsc` does not run the real compiler (npm’s safety message). You must install dev deps for the build phase.
+
+**Recommended — single Render “Build Command”** (root directory `backend`):
+
+```bash
+npm ci --include=dev && npm run render-build
+```
+
+That runs, in order:
+
+1. `npm ci --include=dev` — installs `typescript`, `prisma`, `@types/*`, etc.
+2. `prisma generate`
+3. `prisma migrate deploy`
+4. `npm run build` — runs `prebuild` (`sync:shared`) then `tsc` (local `node_modules/.bin/tsc`, not a global binary).
+
+**Option B — split (e.g. migrate only in Pre-Deploy)**
 
 ```bash
 npm ci --include=dev
-```
-
-Then either:
-
-**Option A — migrations in one step (recommended)**  
-Runs `generate`, applies all pending migrations to the DB Render injects via `DATABASE_URL`, then compiles:
-
-```bash
-npm run render-build
-```
-
-**Option B — split generate / build / migrate**
-
-```bash
 npx prisma generate
 npm run build
 ```
 
-…and use a Render **Pre-Deploy Command** (or a second build phase) for:
+…and use a Render **Pre-Deploy Command** for:
 
 ```bash
 npm run db:migrate:deploy

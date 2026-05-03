@@ -6,8 +6,9 @@
   "scripts": {
     "sync:shared": "node ../scripts/sync-event-images.cjs",
     "dev": "npm run sync:shared && tsx watch src/index.ts",
-    "build": "npm run sync:shared && npx tsc",
-    "render-build": "npx prisma generate && npx prisma migrate deploy && npm run build",
+    "prebuild": "npm run sync:shared",
+    "build": "tsc",
+    "render-build": "prisma generate && prisma migrate deploy && npm run build",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
