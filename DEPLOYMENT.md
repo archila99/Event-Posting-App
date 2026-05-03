@@ -130,12 +130,19 @@ Create a Vercel project from this repo with:
 - Output: Vercel auto-detects Vite (`dist/`)
 
 ### Environment variables (Vercel)
-- `VITE_API_URL` = `https://<your-render-backend-domain>`
+- `VITE_API_URL` = `https://<your-render-backend-domain>` (no trailing slash, **no `/api`** — the app appends `/api` itself).
 
 The frontend builds API URLs like:
 - `${VITE_API_URL}/api/...`
 
 All API requests include `credentials: "include"` so the refresh cookie can be sent.
+
+**If API calls 404 or hit the wrong host:**
+1. Confirm `VITE_API_URL` is exactly the Render service URL (e.g. `https://event-posting-app.onrender.com`), not your Vercel URL.
+2. After changing env vars, **redeploy** (Vite inlines `VITE_*` at build time).
+3. Do not set `VITE_API_URL` to `.../api` — that would produce `.../api/api/...` and 404.
+
+`frontend/vercel.json` adds SPA rewrites so client routes refresh correctly; it does not affect calls to the Render backend (those use absolute URLs).
 
 ---
 

@@ -1,8 +1,21 @@
-const BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+/** Backend origin only (no path). Strips trailing slashes and accidental `/api` suffix. */
+function normalizeBackendBase(raw: string): string {
+  let s = raw.trim();
+  if (!s) return "";
+  s = s.replace(/\/+$/, "");
+  if (s.endsWith("/api")) s = s.slice(0, -4).replace(/\/+$/, "");
+  return s;
+}
+
+const BASE_URL = normalizeBackendBase(import.meta.env.VITE_API_URL || "");
 if (import.meta.env.PROD && !BASE_URL) {
   throw new Error("VITE_API_URL is required in production (must point to the backend base URL).");
 }
 const API = BASE_URL + "/api";
+
+if (import.meta.env.DEV) {
+  console.info("[api] Backend base:", BASE_URL || "(Vite proxy → same-origin /api)");
+}
 
 const NO_REFRESH_PATHS = new Set([
   "/auth/refresh",
