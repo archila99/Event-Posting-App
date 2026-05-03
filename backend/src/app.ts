@@ -13,6 +13,11 @@ type CreateAppOptions = {
 export function createApp({ uploadsDir, frontendDir }: CreateAppOptions) {
   const app = express();
 
+  // Root health check (Render / probes) — no CORS required
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+
   const isProd = process.env.NODE_ENV === "production";
   const frontendUrl = (process.env.FRONTEND_URL || "").trim();
   if (isProd && !frontendUrl) {
