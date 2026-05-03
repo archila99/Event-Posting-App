@@ -20,12 +20,12 @@ No routes or business logic are changed for deployment.
    - Ensure your `DATABASE_URL` includes `?sslmode=require`.
 
 3. Pooling / migrations:
-   - If you use the Supabase **pooler (PgBouncer)** connection string for runtime, put that in `DATABASE_URL`.
-   - Put the **direct** connection string in `DIRECT_URL` so Prisma migrations can run reliably.
+   - Prefer the Supabase **direct** Postgres connection string as `DATABASE_URL` on Render so `prisma migrate deploy` and the app share one URL (with `?sslmode=require`).
+   - If you must use the **pooler** URL for the app, keep a direct URL for migrations (Prisma `directUrl` in `schema.prisma` + `DIRECT_URL` in env) per [Prisma + PgBouncer](https://www.prisma.io/docs/guides/performance-and-optimization/connection-management/configure-pg-bouncer).
 
 Environment (backend):
 - `DATABASE_URL="postgresql://...?...&sslmode=require"`
-- `DIRECT_URL="postgresql://...?...&sslmode=require"` (recommended)
+- `DIRECT_URL` — optional; only required if you add `directUrl = env("DIRECT_URL")` to `schema.prisma` for pooler setups.
 
 ---
 
@@ -37,12 +37,32 @@ Create a **Web Service** from this repo with:
 - **Runtime**: Node
 
 ### Build command
-Use:
+Install with dev dependencies so the Prisma CLI and TypeScript are available (`prisma` and `typescript` live in `devDependencies`):
 
 ```bash
-npm ci
+npm ci --include=dev
+```
+
+Then either:
+
+**Option A — migrations in one step (recommended)**  
+Runs `generate`, applies all pending migrations to the DB Render injects via `DATABASE_URL`, then compiles:
+
+```bash
+npm run render-build
+```
+
+**Option B — split generate / build / migrate**
+
+```bash
 npx prisma generate
 npm run build
+```
+
+…and use a Render **Pre-Deploy Command** (or a second build phase) for:
+
+```bash
+npm run db:migrate:deploy
 ```
 
 ### Start command
@@ -52,17 +72,19 @@ Use:
 npm start
 ```
 
+### Why you saw “table does not exist”
+The database had **never received the full Prisma schema**. The repo used to ship only a small migration that created `RefreshToken` and referenced `"User"`, so `prisma migrate deploy` on an empty Supabase DB could not create `User`, `Reservation`, etc. The history is fixed with a **baseline migration** (`20250418100000_initial_schema`) that creates every table. After deploy, `_prisma_migrations` tracks applied files and the app matches the schema.
+
 ### Migrations (recommended)
-Render supports a “Pre-Deploy Command”. Set it to:
+- `npm run render-build` already runs `prisma migrate deploy` before `npm run build`.
+- If you use Pre-Deploy instead, run `npm run db:migrate:deploy` there (`prisma migrate deploy`).
 
-```bash
-npm run db:migrate:deploy
-```
+> **Local machine / one-off:** with `DATABASE_URL` pointing at Supabase (direct URL, `sslmode=require`), from `backend/`: `npx prisma migrate deploy` then optionally `npm run db:seed`.
 
-This runs:
-- `prisma migrate deploy`
+> If your database was created only with `prisma db push` and you are switching to Migrate, resolve conflicts with [Prisma baselining](https://www.prisma.io/docs/guides/migrate/developing-with-prisma-migrate/baselining). Fresh Supabase DBs: run `migrate deploy` once.
 
-> Note: If your database was previously created with `prisma db push`, you may need to baseline once using Prisma’s recommended workflow. For a fresh Supabase DB, `migrate deploy` works normally.
+### If you already applied the old `add_refresh_token` migration locally
+That folder was removed and folded into `initial_schema`. On a **dev** DB that only has `_prisma_migrations` entries for the old name, reset the dev database or align `_prisma_migrations` with Prisma’s docs; production Supabase that never had tables should simply run the new `initial_schema` migration.
 
 ### Required environment variables (Render)
 
