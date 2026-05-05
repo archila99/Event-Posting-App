@@ -15,7 +15,7 @@ function getEmailConfig() {
   return { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM };
 }
 
-/** Send a single email via SMTP. Returns true if sent, false if SMTP not configured; throws on send failure. */
+/** Send a single email via SMTP. Returns true if sent, false if SMTP not configured or send fails. */
 async function sendEmail(to: string, subject: string, text: string, html: string): Promise<boolean> {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM } = getEmailConfig();
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
@@ -25,9 +25,11 @@ async function sendEmail(to: string, subject: string, text: string, html: string
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
+    // Brevo SMTP relay uses STARTTLS on 587 (secure=false).
+    // Keep this explicit to avoid provider-specific branching and surprises in production.
+    secure: false,
+    requireTLS: true,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
-    ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
   });
   try {
     console.log("[Email] Sending:", subject, "→", to);
@@ -42,11 +44,17 @@ async function sendEmail(to: string, subject: string, text: string, html: string
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error("[Email] SMTP send failed:", msg);
-    if (stack) console.error("[Email] Stack:", stack);
-    if (err && typeof err === "object" && "response" in err) console.error("[Email] Response:", (err as { response: string }).response);
-    throw err;
+    console.error("[Email] SMTP send failed:", msg, {
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      user: SMTP_USER,
+      from: EMAIL_FROM || SMTP_USER,
+      to,
+      subject,
+    });
+    if (err instanceof Error && "code" in err) console.error("[Email] Code:", (err as { code?: string }).code);
+    if (err && typeof err === "object" && "response" in err) console.error("[Email] Response:", (err as { response?: string }).response);
+    return false;
   }
 }
 
@@ -56,16 +64,9 @@ export async function sendVerificationCode(toEmail: string, code: string): Promi
   const text = `Your verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`;
   const html = `<p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 10 minutes. Do not share it with anyone.</p>`;
 
-  try {
-    const sent = await sendEmail(toEmail, subject, text, html);
-    if (!sent) {
-      console.log("[Email] Not configured — verification code for", toEmail, ":", code);
-    }
-    return sent;
-  } catch (err) {
-    console.error("[Email] sendVerificationCode failed for", toEmail, ":", err instanceof Error ? err.message : err);
-    throw err;
-  }
+  const sent = await sendEmail(toEmail, subject, text, html);
+  if (!sent) console.log("[Email] Verification code not sent for", toEmail, "(SMTP not configured or send failed).");
+  return sent;
 }
 
 /** Send password reset code. Returns true if sent, false if SMTP not configured; throws on send failure. */
@@ -74,16 +75,9 @@ export async function sendPasswordResetCode(toEmail: string, code: string): Prom
   const text = `Your password reset code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone. If you didn't request this, you can ignore this email.`;
   const html = `<p>Your password reset code is: <strong>${code}</strong></p><p>This code expires in 10 minutes. Do not share it with anyone.</p><p>If you didn't request this, you can ignore this email.</p>`;
 
-  try {
-    const sent = await sendEmail(toEmail, subject, text, html);
-    if (!sent) {
-      console.log("[Email] Not configured — password reset code for", toEmail, ":", code);
-    }
-    return sent;
-  } catch (err) {
-    console.error("[Email] sendPasswordResetCode failed for", toEmail, ":", err instanceof Error ? err.message : err);
-    throw err;
-  }
+  const sent = await sendEmail(toEmail, subject, text, html);
+  if (!sent) console.log("[Email] Password reset code not sent for", toEmail, "(SMTP not configured or send failed).");
+  return sent;
 }
 
 export type EventCancellationRecipient = "attendee" | "artist";

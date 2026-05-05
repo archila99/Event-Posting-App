@@ -107,10 +107,10 @@ Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For prod
 
 ### Email
 
-Verification and other emails use **SMTP** (e.g. Gmail).
+Verification and other emails use **SMTP** (e.g. Brevo SMTP relay).
 
 - Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and optionally `EMAIL_FROM` in `backend/.env`.
-- For Gmail: use an [App Password](https://myaccount.google.com/apppasswords) (not your normal password). Use `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`.
+- For Brevo: use `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, and your Brevo SMTP login/password.
 
 Users receive a 6-digit code by email and enter it on the verification screen; the code is not shown on the frontend. Resend is available after a 60-second cooldown. Optional: set `INCLUDE_DEV_CODE=true` in `backend/.env` to include the code in the register API response (e.g. for local testing when email does not arrive); the frontend never displays it.
 

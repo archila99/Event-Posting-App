@@ -33,9 +33,9 @@ async function main() {
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
+    secure: false,
+    requireTLS: true,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
-    ...(SMTP_HOST === "smtp.gmail.com" && { secure: false, requireTLS: true }),
   });
 
   try {
@@ -48,7 +48,7 @@ async function main() {
     process.exit(1);
   }
 
-  const to = SMTP_USER;
+  const to = process.argv[2] || SMTP_USER;
   const subject = "Ticket Book SMTP test";
   const text = "If you see this, SMTP is working.";
 
