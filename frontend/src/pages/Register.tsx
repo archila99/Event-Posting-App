@@ -16,12 +16,11 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verifyCode, setVerifyCode] = useState("");
+  const [otpPreview, setOtpPreview] = useState<string | null>(null);
+  const [signupSessionId, setSignupSessionId] = useState<string | null>(() => localStorage.getItem("signupSessionId"));
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
-  const [resendLoading, setResendLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [emailSent, setEmailSent] = useState(true);
-  const [emailError, setEmailError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { refresh, logout } = useAuth();
 
@@ -41,16 +40,12 @@ export default function Register() {
     setLoading(true);
     try {
       const emailNorm = email.trim().toLowerCase();
-      const { message, emailError: errMsg } = await auth.register({
-        email: emailNorm,
-        password,
-        name,
-        role,
-      });
+      const r = await auth.register({ email: emailNorm, password, name, role });
+      setOtpPreview(r.otpPreview);
+      setSignupSessionId(r.sessionId);
+      localStorage.setItem("signupSessionId", r.sessionId);
       setEmail(emailNorm);
       logout();
-      setEmailSent(!errMsg && (message ?? "").includes("sent to your email"));
-      setEmailError(errMsg ?? null);
       setPendingVerification(true);
       setVerifyCode("");
       setResendCooldown(60);
@@ -65,12 +60,16 @@ export default function Register() {
     e.preventDefault();
     const code = verifyCode.replace(/\D/g, "").slice(0, 6);
     if (code.length !== 6) return;
-    const emailNorm = email.trim().toLowerCase();
+    if (!signupSessionId) {
+      setVerifyError("Signup session not found. Please register again.");
+      return;
+    }
     setVerifyError("");
     setVerifyLoading(true);
     try {
-      const { token } = await auth.verifyEmail(emailNorm, code);
+      const { token } = await auth.verifyOtp(signupSessionId, code);
       localStorage.setItem("token", token);
+      localStorage.removeItem("signupSessionId");
       await refresh();
       setPendingVerification(false);
       navigate("/dashboard");
@@ -82,18 +81,8 @@ export default function Register() {
   };
 
   const handleResendCode = async () => {
-    const emailNorm = email.trim().toLowerCase();
-    if (!emailNorm || resendCooldown > 0) return;
-    setResendLoading(true);
-    setVerifyError("");
-    try {
-      await auth.resendVerificationCode(emailNorm);
-      setResendCooldown(60);
-    } catch (err: unknown) {
-      setVerifyError(err instanceof Error ? err.message : "Failed to resend code");
-    } finally {
-      setResendLoading(false);
-    }
+    // For strict pending sessions, we intentionally avoid "resend" without server-side session renewal endpoint.
+    setVerifyError("OTP can’t be resent in this demo flow yet. Please register again to generate a new OTP.");
   };
 
   if (pendingVerification) {
@@ -103,13 +92,9 @@ export default function Register() {
           <CardHeader className="space-y-2">
             <CardTitle>Verify your email</CardTitle>
             <CardDescription>
-              {emailSent
-                ? <>We sent a 6-digit code to <strong>{email}</strong>. Enter it below (valid 10 minutes). Check spam if you don’t see it.</>
-                : <>We couldn&apos;t send the code to <strong>{email}</strong>. Use &quot;Resend code&quot; or set SMTP in backend/.env.</>}
+              OTP preview (no email). Your verification code is:{" "}
+              <strong className="font-mono tracking-[0.25em]">{otpPreview ?? "------"}</strong>
             </CardDescription>
-            {emailError && (
-              <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{emailError}</p>
-            )}
           </CardHeader>
           <CardContent>
             <form onSubmit={handleVerify} className="space-y-4">
@@ -136,10 +121,10 @@ export default function Register() {
                 type="button"
                 variant="outline"
                 className="w-full min-h-[44px] text-base"
-                disabled={resendLoading || resendCooldown > 0}
+                disabled={resendCooldown > 0}
                 onClick={handleResendCode}
               >
-                {resendLoading ? "Sending…" : resendCooldown > 0 ? `Resend code (in ${resendCooldown}s)` : "Resend code"}
+                {resendCooldown > 0 ? `Resend code (in ${resendCooldown}s)` : "Resend code"}
               </Button>
             </form>
           </CardContent>
@@ -153,7 +138,7 @@ export default function Register() {
       <Card className="shadow-sm">
         <CardHeader className="space-y-2">
           <CardTitle>Create account</CardTitle>
-          <CardDescription>Join Ticket Book. We&apos;ll send a verification code to your email after you sign up.</CardDescription>
+          <CardDescription>Join Ticket Book. After sign up, a one-time code will be shown on screen (demo mode).</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

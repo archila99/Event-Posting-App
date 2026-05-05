@@ -12,7 +12,8 @@ export async function startServer() {
   try {
     // In production (Render), env vars are injected by the platform.
     // In local dev, src/index.ts loads backend/.env; this is a no-op if already loaded.
-    dotenv.config();
+    // Keep logs clean in dev (dotenv prints “injecting env …” tips by default).
+    dotenv.config({ quiet: true });
 
     const nodeEnv = process.env.NODE_ENV || "development";
     const hasDbUrl = !!(process.env.DATABASE_URL && String(process.env.DATABASE_URL).trim());

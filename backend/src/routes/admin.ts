@@ -5,7 +5,6 @@ import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { withEventImageDisplayUrl } from "../lib/storage.js";
 import { Role } from "../types.js";
 import { auditLog } from "../lib/audit.js";
-import { sendEventCancellationEmail, sendTicketRefundEmail } from "../lib/email.js";
 export const adminRouter = Router();
 const admin = authMiddleware;
 const onlyAdmin = requireRole(Role.ADMIN);
@@ -85,22 +84,11 @@ adminRouter.post(
         timeSlotName: event.timeSlot.name,
         timeSlotRange: `${event.timeSlot.startTime}–${event.timeSlot.endTime}`,
       };
-      await Promise.all([
-        ...Array.from(attendeeEmails).map((email) =>
-          sendEventCancellationEmail(email, eventInfo, "attendee").catch((err) =>
-            console.error("[Cancel] Failed to send cancellation email to", email, err)
-          )
-        ),
-        event.artist.email
-          ? sendEventCancellationEmail(event.artist.email, eventInfo, "artist").catch((err) =>
-              console.error("[Cancel] Failed to send cancellation email to artist", event.artist.email, err)
-            )
-          : Promise.resolve(),
-      ]);
+      console.log("[Cancel] Email notifications removed; skipping notify.", { eventInfo, attendeeCount: attendeeEmails.size });
 
       return res.json({
         message:
-          "Event deleted; reservations and tickets removed; slot is free for a new event. Notification emails sent.",
+          "Event deleted; reservations and tickets removed; slot is free for a new event.",
       });
     } catch (e) {
       next(e);
@@ -218,9 +206,7 @@ adminRouter.post(
         timeSlotName: ticket.event.timeSlot.name,
         timeSlotRange: `${ticket.event.timeSlot.startTime}–${ticket.event.timeSlot.endTime}`,
       };
-      await sendTicketRefundEmail(ticket.user.email, eventInfo).catch((err) =>
-        console.error("[Refund] Failed to send refund email to", ticket.user?.email, err)
-      );
+      console.log("[Refund] Email notifications removed; skipping notify.", { to: ticket.user.email, eventInfo });
     }
 
     return res.json({ message: "Ticket refunded" });

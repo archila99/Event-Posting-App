@@ -26,6 +26,7 @@ No routes or business logic are changed for deployment.
 Environment (backend):
 - `DATABASE_URL="postgresql://...?...&sslmode=require"`
 - `DIRECT_URL` — optional; only required if you add `directUrl = env("DIRECT_URL")` to `schema.prisma` for pooler setups.
+- (Email/SMTP env vars were removed; auth uses UI-based OTP preview in demo mode.)
 
 ---
 
@@ -105,7 +106,7 @@ That folder was removed and folded into `initial_schema`. On a **dev** DB that o
   - `REFRESH_TOKEN_EXPIRES_IN` = `7d`
 
 - **Email (SMTP)** (if you want email verification + purchase codes to send)
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`
+  - (removed) `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`
 
 - **Node**
   - `NODE_ENV=production`

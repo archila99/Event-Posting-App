@@ -1,70 +1,23 @@
 import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { auth } from "../api";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 
 export default function ResetPassword() {
   const location = useLocation();
-  const navigate = useNavigate();
   const emailFromState = (location.state as { email?: string } | null)?.email ?? "";
   const [email, setEmail] = useState(emailFromState);
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const trimmedEmail = email.trim().toLowerCase();
-    const codeDigits = code.replace(/\D/g, "").slice(0, 6);
-    if (codeDigits.length !== 6) {
-      setError("Enter the 6-digit code from your email.");
-      return;
-    }
-    if (newPassword.length < 6) {
-      setError("New password must be at least 6 characters.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    setLoading(true);
-    try {
-      await auth.resetPassword(trimmedEmail, codeDigits, newPassword);
-      setSuccess(true);
-      setTimeout(() => navigate("/login", { replace: true }), 2000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to reset password");
-    } finally {
-      setLoading(false);
-    }
+    setError("Password reset is not available in the OTP-only demo. Please create a new account.");
   };
-
-  if (success) {
-    return (
-      <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
-        <Card className="shadow-sm">
-          <CardHeader className="space-y-2">
-            <CardTitle>Password updated</CardTitle>
-            <CardDescription>
-              Your password has been reset. Redirecting you to login…
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
-              <Link to="/login">Go to login</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto mt-6 w-full max-w-sm px-1 sm:mt-10">
@@ -72,7 +25,7 @@ export default function ResetPassword() {
         <CardHeader className="space-y-2">
           <CardTitle>Set new password</CardTitle>
           <CardDescription>
-            Enter the 6-digit code we sent to your email and choose a new password (at least 6 characters).
+            Password reset is not available in the OTP-only demo.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -125,11 +78,11 @@ export default function ResetPassword() {
                 placeholder="Same as above"
               />
             </div>
-            <Button type="submit" className="w-full min-h-[44px] text-base" disabled={loading}>
-              {loading ? "Updating…" : "Reset password"}
+            <Button type="submit" className="w-full min-h-[44px] text-base">
+              Go to register
             </Button>
             <p className="text-sm text-muted-foreground text-center">
-              <Link to="/forgot-password">Request a new code</Link> · <Link to="/login">Back to login</Link>
+              <Link to="/register">Register</Link> · <Link to="/login">Back to login</Link>
             </p>
           </form>
         </CardContent>

@@ -105,14 +105,9 @@ Backend reads `backend/.env` locally. Copy from `backend/.env.example`. For prod
 - `RESERVATION_EXPIRY_MINUTES` – Reservation hold time (default `10`)
 - Uploads are stored under `backend/uploads/` and served at `/api/uploads/` by default (may be ephemeral in production hosts).
 
-### Email
+### OTP (no email delivery)
 
-Verification and other emails use **SMTP** (e.g. Brevo SMTP relay).
-
-- Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and optionally `EMAIL_FROM` in `backend/.env`.
-- For Brevo: use `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, and your Brevo SMTP login/password.
-
-Users receive a 6-digit code by email and enter it on the verification screen; the code is not shown on the frontend. Resend is available after a 60-second cooldown. Optional: set `INCLUDE_DEV_CODE=true` in `backend/.env` to include the code in the register API response (e.g. for local testing when email does not arrive); the frontend never displays it.
+This app uses a **UI-based OTP** flow for verification in local development/demo mode (no SMTP/email required). After signup, the API returns an `otpPreview` which the frontend displays; you enter it to complete verification.
 
 ## API Overview
 

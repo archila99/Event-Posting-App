@@ -21,10 +21,7 @@ const NO_REFRESH_PATHS = new Set([
   "/auth/refresh",
   "/auth/login",
   "/auth/register",
-  "/auth/verify-email",
-  "/auth/resend-verification-code",
-  "/auth/forgot-password",
-  "/auth/reset-password",
+  "/auth/verify-otp",
   "/auth/logout",
 ]);
 
@@ -108,9 +105,9 @@ export const auth = {
   register: (body: { email: string; password: string; name: string; role: Role }) =>
     api<{
       message: string;
+      sessionId: string;
+      otpPreview: string;
       expiresInMinutes?: number;
-      devCode?: string;
-      emailError?: string;
     }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(body),
@@ -118,25 +115,10 @@ export const auth = {
   login: (email: string, password: string) =>
     api<{ user: User; token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: (signal?: AbortSignal) => api<User>("/auth/me", signal ? { signal } : {}),
-  verifyEmail: (email: string, code: string) =>
-    api<{ success: boolean; user: User | null; token: string }>("/auth/verify-email", {
+  verifyOtp: (sessionId: string, code: string) =>
+    api<{ success: boolean; user: User | null; token: string }>("/auth/verify-otp", {
       method: "POST",
-      body: JSON.stringify({ email, code }),
-    }),
-  resendVerificationCode: (email: string) =>
-    api<{ message: string; expiresInMinutes?: number; devCode?: string }>("/auth/resend-verification-code", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    }),
-  forgotPassword: (email: string) =>
-    api<{ message: string; expiresInMinutes?: number }>("/auth/forgot-password", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    }),
-  resetPassword: (email: string, code: string, newPassword: string) =>
-    api<{ message: string }>("/auth/reset-password", {
-      method: "POST",
-      body: JSON.stringify({ email, code, newPassword }),
+      body: JSON.stringify({ sessionId, code }),
     }),
   logout: () =>
     fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => undefined),

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireEmailVerified } from "../middleware/auth.js";
 import { auditLog } from "../lib/audit.js";
-import { sendVerificationCode } from "../lib/email.js";
+import bcrypt from "bcryptjs";
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
 
@@ -62,27 +62,16 @@ ticketsRouter.post("/send-verification-code/:reservationId", async (req: express
 
   const code = generateCode();
   const expiresAt = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000);
+  const codeHash = await bcrypt.hash(code, 10);
 
   await prisma.verificationCode.upsert({
     where: { reservationId },
-    create: { userId, reservationId, code, expiresAt },
-    update: { code, expiresAt },
+    create: { userId, reservationId, codeHash, expiresAt },
+    update: { codeHash, expiresAt },
   });
 
-  try {
-    const sent = await sendVerificationCode(reservation.user.email, code);
-    if (!sent) {
-      return res.status(503).json({
-        error: "Verification email is not configured. Contact support.",
-      });
-    }
-  } catch (err) {
-    console.error("[send-verification-code] Email send failed:", err instanceof Error ? err.message : err);
-    return res.status(503).json({
-      error: "Failed to send verification email. Please check your email configuration or try again later.",
-    });
-  }
-  return res.json({ message: "Verification code sent to your email", expiresInMinutes: VERIFICATION_CODE_EXPIRY_MINUTES });
+  // UI-delivery demo (no email): return preview to the client.
+  return res.json({ message: "Verification code generated", codePreview: code, expiresInMinutes: VERIFICATION_CODE_EXPIRY_MINUTES });
 });
 
 const purchaseSchema = z.object({ code: z.string().length(6).optional() });
@@ -131,7 +120,8 @@ ticketsRouter.post("/purchase/:reservationId", async (req: express.Request & { u
       await prisma.verificationCode.delete({ where: { reservationId } }).catch(() => {});
       return res.status(400).json({ error: "Verification code has expired. Request a new code." });
     }
-    if (verification.code !== code) {
+    const ok = await bcrypt.compare(code, verification.codeHash);
+    if (!ok) {
       return res.status(400).json({ error: "Invalid verification code." });
     }
   }

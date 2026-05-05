@@ -25,8 +25,39 @@ model User {
   comments              EventComment[]
   auditLogs             AuditLog[]
   verificationCodes     VerificationCode[]
-  emailVerificationCode EmailVerificationCode?
   refreshTokens         RefreshToken[]
+  otpCodes              OtpCode[]
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
+model PendingSignupSession {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String
+  otpHash      String
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([email, createdAt])
 }
 
 model RefreshToken {
@@ -40,35 +71,6 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-}
-
-model EmailVerificationCode {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  code      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model PendingRegistration {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         String
-  code         String
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-}
-
-model PendingPasswordReset {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  code      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
 }
 
 model Location {
@@ -174,7 +176,7 @@ model VerificationCode {
   id             String   @id @default(cuid())
   userId         String
   reservationId  String   @unique
-  code           String   // 6-digit
+  codeHash       String
   expiresAt      DateTime
   createdAt      DateTime @default(now())
 
