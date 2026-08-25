@@ -54,14 +54,6 @@ authRouter.post("/refresh", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
   const tokenHash = hashRefreshToken(raw);
-  const existing = await prisma.refreshToken.findFirst({
-    where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } },
-    include: { user: { select: { id: true, email: true, role: true, deletedAt: true } } },
-  });
-  if (!existing?.user || existing.user.deletedAt) {
-    clearRefreshTokenCookie(res);
-    return res.status(401).json({ error: "Unauthorized" });
-  }
 
   const newRaw = generateRefreshTokenRaw();
   const newHash = hashRefreshToken(newRaw);
@@ -69,28 +61,54 @@ authRouter.post("/refresh", async (req, res) => {
   const newExpiresAt = new Date(Date.now() + expiresMs);
 
   try {
-    await prisma.$transaction(async (tx) => {
+    const user = await prisma.$transaction(async (tx) => {
+      // Serialize rotation on this refresh-token row (single-use under concurrency).
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; userId: string; revokedAt: Date | null; expiresAt: Date }>
+      >`
+        SELECT id, "userId", "revokedAt", "expiresAt"
+        FROM "RefreshToken"
+        WHERE "tokenHash" = ${tokenHash}
+        FOR UPDATE
+      `;
+      const row = locked[0];
+      if (!row || row.revokedAt != null || !(new Date(row.expiresAt) > new Date())) {
+        throw new Error("REFRESH_UNAUTHORIZED");
+      }
+
+      const tokenUser = await tx.user.findUnique({
+        where: { id: row.userId },
+        select: { id: true, email: true, role: true, deletedAt: true },
+      });
+      if (!tokenUser || tokenUser.deletedAt) {
+        throw new Error("REFRESH_UNAUTHORIZED");
+      }
+
       await tx.refreshToken.update({
-        where: { id: existing.id },
+        where: { id: row.id },
         data: { revokedAt: new Date() },
       });
       await tx.refreshToken.create({
-        data: { userId: existing.userId, tokenHash: newHash, expiresAt: newExpiresAt },
+        data: { userId: row.userId, tokenHash: newHash, expiresAt: newExpiresAt },
       });
+
+      return tokenUser;
     });
+
+    setRefreshTokenCookie(res, newRaw);
+    const token = signAccessToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    return res.json({ token });
   } catch (e) {
-    console.error("[auth/refresh]", e instanceof Error ? e.message : e);
+    if (!(e instanceof Error && e.message === "REFRESH_UNAUTHORIZED")) {
+      console.error("[auth/refresh]", e instanceof Error ? e.message : e);
+    }
     clearRefreshTokenCookie(res);
     return res.status(401).json({ error: "Unauthorized" });
   }
-
-  setRefreshTokenCookie(res, newRaw);
-  const token = signAccessToken({
-    userId: existing.user.id,
-    email: existing.user.email,
-    role: existing.user.role,
-  });
-  return res.json({ token });
 });
 
 authRouter.post("/logout", async (req, res) => {

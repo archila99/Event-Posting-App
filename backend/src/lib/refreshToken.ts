@@ -7,12 +7,21 @@ export const REFRESH_COOKIE_NAME = "refreshToken";
 export const REFRESH_COOKIE_PATH = "/api";
 
 export function getRefreshTokenSecret(): string {
-  return (
+  const secret =
     process.env.JWT_REFRESH_SECRET ||
     process.env.REFRESH_TOKEN_SECRET ||
-    process.env.JWT_SECRET ||
-    "refresh-secret-change-me"
-  );
+    process.env.JWT_SECRET;
+
+  if (secret) return secret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Missing required env: JWT_REFRESH_SECRET (or REFRESH_TOKEN_SECRET/JWT_SECRET fallback)",
+    );
+  }
+
+  // Local-only convenience; never used in production.
+  return "refresh-secret-change-me";
 }
 
 export function hashRefreshToken(rawToken: string): string {

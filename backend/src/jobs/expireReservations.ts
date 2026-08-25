@@ -10,8 +10,21 @@ async function expireReservations() {
     select: { id: true, eventId: true, userId: true },
   });
   if (expired.length === 0) return;
-  await prisma.$transaction(async (tx) => {
-    for (const r of expired) {
+
+  const actuallyExpired: typeof expired = [];
+  for (const r of expired) {
+    const didExpire = await prisma.$transaction(async (tx) => {
+      // Do not trust the candidate query; re-check under row lock.
+      const locked = await tx.$queryRaw<Array<{ id: string; status: string; expiresAt: Date }>>`
+        SELECT id, status, "expiresAt"
+        FROM "Reservation"
+        WHERE id = ${r.id}
+        FOR UPDATE
+      `;
+      const row = locked[0];
+      if (!row || row.status !== "ACTIVE") return false;
+      if (!(new Date(row.expiresAt) < new Date())) return false;
+
       await tx.reservation.update({
         where: { id: r.id },
         data: { status: "EXPIRED" },
@@ -20,9 +33,12 @@ async function expireReservations() {
         where: { reservationId: r.id },
         data: { status: "EXPIRED" },
       });
-    }
-  });
-  for (const r of expired) {
+      return true;
+    });
+    if (didExpire) actuallyExpired.push(r);
+  }
+
+  for (const r of actuallyExpired) {
     await auditLog("RESERVATION_EXPIRED", "Reservation", r.id, r.userId);
   }
 }

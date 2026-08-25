@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 export async function findActiveUserByEmail(email: string) {
@@ -7,8 +8,11 @@ export async function findActiveUserByEmail(email: string) {
   });
 }
 
-export async function createVerifiedUser(args: { email: string; passwordHash: string; name: string; role: string }) {
-  return prisma.user.create({
+export async function createVerifiedUser(
+  db: Prisma.TransactionClient,
+  args: { email: string; passwordHash: string; name: string; role: string },
+) {
+  return db.user.create({
     data: {
       email: args.email,
       password: args.passwordHash,
@@ -19,4 +23,3 @@ export async function createVerifiedUser(args: { email: string; passwordHash: st
     select: { id: true, email: true, name: true, role: true, createdAt: true, emailVerifiedAt: true },
   });
 }
-

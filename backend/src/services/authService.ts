@@ -51,27 +51,35 @@ export async function verifySignupSession(args: { sessionId: string; code: strin
   if (!match) return { ok: false as const, reason: "MISMATCH" as const };
 
   // Atomic: mark session used + create user.
-  const created = await prisma.$transaction(async (tx) => {
-    const updated = await tx.pendingSignupSession.updateMany({
-      where: { id: session.id, usedAt: null },
-      data: { usedAt: now },
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const updated = await tx.pendingSignupSession.updateMany({
+        where: { id: session.id, usedAt: null },
+        data: { usedAt: now },
+      });
+      if (updated.count !== 1) return null;
+
+      // Safety: re-check email still free at commit time.
+      // Must throw (not return) so Prisma rolls back usedAt.
+      const existing = await tx.user.findUnique({ where: { email: session.email }, select: { id: true } });
+      if (existing) throw new Error("EMAIL_CONFLICT_DURING_SIGNUP");
+
+      const user = await createVerifiedUser(tx, {
+        email: session.email,
+        passwordHash: session.passwordHash,
+        name: session.name,
+        role: session.role,
+      });
+      return user;
     });
-    if (updated.count !== 1) return null;
 
-    // Safety: re-check email still free at commit time.
-    const existing = await tx.user.findUnique({ where: { email: session.email }, select: { id: true } });
-    if (existing) return null;
-
-    const user = await createVerifiedUser({
-      email: session.email,
-      passwordHash: session.passwordHash,
-      name: session.name,
-      role: session.role,
-    });
-    return user;
-  });
-
-  if (!created) return { ok: false as const, reason: "COMMIT_FAILED" as const };
-  return { ok: true as const, user: created };
+    if (!created) return { ok: false as const, reason: "COMMIT_FAILED" as const };
+    return { ok: true as const, user: created };
+  } catch (err) {
+    if (err instanceof Error && err.message === "EMAIL_CONFLICT_DURING_SIGNUP") {
+      return { ok: false as const, reason: "COMMIT_FAILED" as const };
+    }
+    throw err;
+  }
 }
 
