@@ -1,51 +1,33 @@
 import { prisma } from "../lib/prisma.js";
-import { auditLog } from "../lib/audit.js";
+import { expireReservation } from "../services/bookingService.js";
 
 const INTERVAL_MS = 60 * 1000; // every minute
 
-async function expireReservations() {
-  const now = new Date();
-  const expired = await prisma.reservation.findMany({
-    where: { status: "ACTIVE", expiresAt: { lt: now } },
-    select: { id: true, eventId: true, userId: true },
-  });
-  if (expired.length === 0) return;
-
-  const actuallyExpired: typeof expired = [];
-  for (const r of expired) {
-    const didExpire = await prisma.$transaction(async (tx) => {
-      // Do not trust the candidate query; re-check under row lock.
-      const locked = await tx.$queryRaw<Array<{ id: string; status: string; expiresAt: Date }>>`
-        SELECT id, status, "expiresAt"
-        FROM "Reservation"
-        WHERE id = ${r.id}
-        FOR UPDATE
-      `;
-      const row = locked[0];
-      if (!row || row.status !== "ACTIVE") return false;
-      if (!(new Date(row.expiresAt) < new Date())) return false;
-
-      await tx.reservation.update({
-        where: { id: r.id },
-        data: { status: "EXPIRED" },
-      });
-      await tx.ticket.updateMany({
-        where: { reservationId: r.id },
-        data: { status: "EXPIRED" },
-      });
-      return true;
-    });
-    if (didExpire) actuallyExpired.push(r);
+export async function expireReservations() {
+  // Bounded batch, using the same database clock as purchase. Other workers may
+  // discover these candidates too; the service re-checks under the event lock.
+  const expired = await prisma.$queryRaw<Array<{ id: string; eventId: string }>>`
+    SELECT id, "eventId" FROM "Reservation"
+    WHERE status = 'ACTIVE' AND "expiresAt" <= (clock_timestamp() AT TIME ZONE 'UTC')
+    ORDER BY "expiresAt", id LIMIT 200`;
+  let count = 0;
+  for (const row of expired) {
+    try { if (await expireReservation(row.id, row.eventId)) count++; }
+    catch { console.error("[expireReservations] candidate failed; will retry on the next run", row.id); }
   }
-
-  for (const r of actuallyExpired) {
-    await auditLog("RESERVATION_EXPIRED", "Reservation", r.id, r.userId);
-  }
+  return count;
 }
 
 export function startReservationExpiryJob() {
-  setInterval(() => {
-    expireReservations().catch((err) => console.error("[expireReservations]", err));
-  }, INTERVAL_MS);
-  expireReservations().catch((err) => console.error("[expireReservations] initial run", err));
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try { await expireReservations(); }
+    catch { console.error("[expireReservations] scan failed; will retry on the next run"); }
+    finally { running = false; }
+  };
+  const timer = setInterval(() => { void run(); }, INTERVAL_MS);
+  void run();
+  return () => clearInterval(timer);
 }

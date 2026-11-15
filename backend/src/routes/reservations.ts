@@ -1,9 +1,10 @@
+import { asyncHandler } from "../lib/asyncHandler.js";
 import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireEmailVerified } from "../middleware/auth.js";
-import { auditLog } from "../lib/audit.js";
-import { MAX_TICKETS_PER_USER_PER_EVENT, MIN_TICKETS_PER_RESERVATION, RESERVATION_EXPIRY_MINUTES } from "../constants.js";
+import { createReservation } from "../services/bookingService.js";
+import { MAX_TICKETS_PER_USER_PER_EVENT, MIN_TICKETS_PER_RESERVATION } from "../constants.js";
 
 const createSchema = z.object({
   eventId: z.string().min(1, "eventId is required"),
@@ -17,34 +18,37 @@ reservationsRouter.use((req, res, next) => {
   void requireEmailVerified(req, res, next).catch(next);
 });
 
-reservationsRouter.get("/my", async (req: express.Request & { user?: { userId: string } }, res) => {
-  const list = await prisma.reservation.findMany({
-    where: { userId: req.user!.userId },
-    include: {
-      event: {
-        select: {
-          id: true,
-          date: true,
-          capacity: true,
-          title: true,
-          status: true,
-          location: true,
-          timeSlot: true,
+reservationsRouter.get("/my", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
+  const result = await prisma.$transaction(async tx => {
+    const list = await tx.reservation.findMany({
+      where: { userId: req.user!.userId },
+      include: {
+        event: {
+          select: {
+            id: true,
+            date: true,
+            capacity: true,
+            title: true,
+            status: true,
+            location: true,
+            timeSlot: true,
+          },
         },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  const withAvailable = await Promise.all(
-    list.map(async (r) => {
-      const taken = await prisma.ticket.count({ where: { eventId: r.eventId, status: { in: ["RESERVED", "SOLD"] } } });
-      return { ...r, event: { ...r.event, taken, available: r.event.capacity - taken } };
-    })
-  );
-  return res.json(withAvailable);
-});
+      orderBy: { createdAt: "desc" },
+    });
+    const withAvailable = await Promise.all(
+      list.map(async (r) => {
+        const taken = await tx.ticket.count({ where: { eventId: r.eventId, status: { in: ["RESERVED", "SOLD"] } } });
+        return { ...r, event: { ...r.event, taken, available: r.event.capacity - taken } };
+      })
+    );
+    return withAvailable;
+  }, { isolationLevel: "RepeatableRead" });
+  return res.json(result);
+}));
 
-reservationsRouter.post("/", async (req: express.Request & { user?: { userId: string } }, res) => {
+reservationsRouter.post("/", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
   const body = req.body;
   if (!body || typeof body !== "object") {
     return res.status(400).json({ error: "Request body must be JSON with eventId and quantity" });
@@ -64,99 +68,15 @@ reservationsRouter.post("/", async (req: express.Request & { user?: { userId: st
     return res.status(403).json({ error: "Only user accounts can reserve tickets. Artists and admins can view events only." });
   }
 
-  const expiresAt = new Date(Date.now() + RESERVATION_EXPIRY_MINUTES * 60 * 1000);
+  const result = await createReservation(eventId, userId, quantity);
+  return res.status(201).json(result);
+}));
 
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // Serialize capacity decisions per event to prevent overselling under concurrency.
-      const locked = await tx.$queryRaw<Array<{ capacity: number; status: string }>>`
-        SELECT capacity, status
-        FROM "Event"
-        WHERE id = ${eventId}
-        FOR UPDATE
-      `;
-      const row = locked[0];
-      if (!row) throw new Error("EVENT_NOT_FOUND");
-      if (row.status !== "APPROVED") {
-        throw new Error(`EVENT_NOT_OPEN:${row.status}`);
-      }
-
-      const existingActive = await tx.reservation.findFirst({
-        where: { eventId, userId, status: "ACTIVE" },
-      });
-      if (existingActive) throw new Error("ACTIVE_RESERVATION_EXISTS");
-
-      const userTotalForEvent = await tx.ticket.count({
-        where: {
-          eventId,
-          OR: [{ userId }, { reservation: { userId } }],
-          status: { in: ["RESERVED", "SOLD"] },
-        },
-      });
-      if (userTotalForEvent + quantity > MAX_TICKETS_PER_USER_PER_EVENT) {
-        throw new Error(`USER_TICKET_LIMIT:${userTotalForEvent}`);
-      }
-
-      const taken = await tx.ticket.count({
-        where: { eventId, status: { in: ["RESERVED", "SOLD"] } },
-      });
-      const available = row.capacity - taken;
-      if (quantity > available) {
-        throw new Error("NOT_ENOUGH_CAPACITY");
-      }
-      const reservation = await tx.reservation.create({
-        data: { eventId, userId, quantity, status: "ACTIVE", expiresAt },
-      });
-      const tickets = [];
-      for (let i = 0; i < quantity; i++) {
-        tickets.push(
-          tx.ticket.create({
-            data: { eventId, reservationId: reservation.id, status: "RESERVED" },
-          })
-        );
-      }
-      await Promise.all(tickets);
-      return tx.reservation.findUnique({
-        where: { id: reservation.id },
-        include: {
-          event: { include: { location: true, timeSlot: true } },
-        },
-      });
-    });
-    if (!result) throw new Error("Create failed");
-    await auditLog("RESERVATION_CREATED", "Reservation", result.id, userId, JSON.stringify({ quantity, expiresAt: expiresAt.toISOString() }));
-    return res.status(201).json(result);
-  } catch (e: unknown) {
-    if (e instanceof Error) {
-      if (e.message === "EVENT_NOT_FOUND") return res.status(404).json({ error: "Event not found" });
-      if (e.message.startsWith("EVENT_NOT_OPEN:")) {
-        const status = e.message.split(":")[1] ?? "UNKNOWN";
-        return res.status(400).json({
-          error: `Event is not open for reservations (status: ${status}). Only approved events can be reserved.`,
-        });
-      }
-      if (e.message === "ACTIVE_RESERVATION_EXISTS") {
-        return res.status(400).json({ error: "You already have an active reservation for this event" });
-      }
-      if (e.message.startsWith("USER_TICKET_LIMIT:")) {
-        const have = Number(e.message.split(":")[1] ?? "0");
-        return res.status(400).json({
-          error: `Maximum ${MAX_TICKETS_PER_USER_PER_EVENT} tickets per user per event. You have ${have} reserved or sold.`,
-        });
-      }
-      if (e.message === "NOT_ENOUGH_CAPACITY") {
-        return res.status(409).json({ error: "Not enough tickets available" });
-      }
-    }
-    throw e;
-  }
-});
-
-reservationsRouter.get("/:id", async (req: express.Request & { user?: { userId: string } }, res) => {
+reservationsRouter.get("/:id", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
   const r = await prisma.reservation.findFirst({
     where: { id: req.params.id, userId: req.user!.userId },
     include: { event: { include: { location: true, timeSlot: true } }, tickets: true },
   });
   if (!r) return res.status(404).json({ error: "Reservation not found" });
   return res.json(r);
-});
+}));

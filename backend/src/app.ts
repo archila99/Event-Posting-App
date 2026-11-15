@@ -3,6 +3,7 @@ import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import { apiRouter } from "./routes/api.js";
+import { BookingError, databaseBusy } from "./lib/bookingTransaction.js";
 
 type CreateAppOptions = {
   uploadsDir: string;
@@ -57,11 +58,17 @@ export function createApp({ uploadsDir, frontendDir }: CreateAppOptions) {
 
   // Catch errors and send 500 (avoid sending after headers sent → malformed response)
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    if (res.headersSent) return _next(err);
+    if (err instanceof BookingError) return res.status(err.status).json({ error: err.message });
+    if (databaseBusy(err)) {
+      res.setHeader("Retry-After", "1");
+      return res.status(503).json({ error: "Database is busy. Please try again." });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     console.error("[Error]", req.method, req.path, msg, stack || "");
     if (res.headersSent) return;
-    res.status(500).json({ error: "Internal Server Error", message: msg });
+    res.status(500).json({ error: "Internal Server Error" });
   });
 
   return app;

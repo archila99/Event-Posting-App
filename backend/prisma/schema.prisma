@@ -155,6 +155,9 @@ model Reservation {
   user              User              @relation(fields: [userId], references: [id])
   tickets           Ticket[]
   verificationCodes VerificationCode[]
+
+  @@index([status, expiresAt])
+  @@index([eventId, userId])
 }
 
 model Ticket {
@@ -170,6 +173,10 @@ model Ticket {
   event        Event        @relation(fields: [eventId], references: [id])
   reservation  Reservation? @relation(fields: [reservationId], references: [id])
   user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([eventId, status])
+  @@index([reservationId])
+  @@index([userId, eventId, status])
 }
 
 model VerificationCode {

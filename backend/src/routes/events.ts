@@ -1,3 +1,4 @@
+import { asyncHandler } from "../lib/asyncHandler.js";
 import express, { Router } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -31,40 +32,43 @@ const createCommentSchema = z.object({
 
 export const eventsRouter = Router();
 
-eventsRouter.get("/", async (req, res, next) => {
+eventsRouter.get("/", asyncHandler(async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
     const date = req.query.date as string | undefined; // exact date filter (legacy)
     const fromDate = req.query.fromDate as string | undefined; // upcoming filter: date >= fromDate
-    const list = await prisma.event.findMany({
-      where: {
-        status: status === "CANCELLED" ? "CANCELLED" : "APPROVED",
-        ...(date ? { date } : {}),
-        ...(fromDate ? { date: { gte: fromDate } } : {}),
-      },
-      include: {
-        artist: { select: { id: true, name: true, email: true } },
-        location: { select: { id: true, name: true, maxCapacity: true } },
-        timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
-      },
-      orderBy: { date: "asc" },
-    });
-    const withAvailable = list.map((e) => {
-      return prisma.ticket.count({ where: { eventId: e.id, status: { in: ["RESERVED", "SOLD"] } } }).then((taken) => ({
-        ...e,
-        taken,
-        available: e.capacity - taken,
-      }));
-    });
-    const result = await Promise.all(withAvailable);
-    const withDisplayUrl = result.map((e) => withEventImageDisplayUrl(e));
-    return res.json(withDisplayUrl);
+    const result = await prisma.$transaction(async tx => {
+      const list = await tx.event.findMany({
+        where: {
+          status: status === "CANCELLED" ? "CANCELLED" : "APPROVED",
+          ...(date ? { date } : {}),
+          ...(fromDate ? { date: { gte: fromDate } } : {}),
+        },
+        include: {
+          artist: { select: { id: true, name: true, email: true } },
+          location: { select: { id: true, name: true, maxCapacity: true } },
+          timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
+        },
+        orderBy: { date: "asc" },
+      });
+      const withAvailable = list.map((e) => {
+        return tx.ticket.count({ where: { eventId: e.id, status: { in: ["RESERVED", "SOLD"] } } }).then((taken) => ({
+          ...e,
+          taken,
+          available: e.capacity - taken,
+        }));
+      });
+      const result = await Promise.all(withAvailable);
+      const withDisplayUrl = result.map((e) => withEventImageDisplayUrl(e));
+      return withDisplayUrl;
+    }, { isolationLevel: "RepeatableRead" });
+    return res.json(result);
   } catch (e) {
     next(e);
   }
-});
+}));
 
-eventsRouter.get("/:id/image", async (req, res, next) => {
+eventsRouter.get("/:id/image", asyncHandler(async (req, res, next) => {
   try {
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
@@ -84,28 +88,32 @@ eventsRouter.get("/:id/image", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
-});
+}));
 
-eventsRouter.get("/:id", async (req, res, next) => {
+eventsRouter.get("/:id", asyncHandler(async (req, res, next) => {
   try {
-    const event = await prisma.event.findUnique({
-      where: { id: req.params.id },
-      include: {
-        artist: { select: { id: true, name: true, email: true } },
-        location: { select: { id: true, name: true, maxCapacity: true } },
-        timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
-      },
-    });
-    if (!event) return res.status(404).json({ error: "Event not found" });
-    const taken = await prisma.ticket.count({ where: { eventId: event.id, status: { in: ["RESERVED", "SOLD"] } } });
-    const withDisplayUrl = withEventImageDisplayUrl({ ...event, taken, available: event.capacity - taken });
-    return res.json(withDisplayUrl);
+    const result = await prisma.$transaction(async tx => {
+      const event = await tx.event.findUnique({
+        where: { id: req.params.id },
+        include: {
+          artist: { select: { id: true, name: true, email: true } },
+          location: { select: { id: true, name: true, maxCapacity: true } },
+          timeSlot: { select: { id: true, name: true, startTime: true, endTime: true } },
+        },
+      });
+      if (!event) return null;
+      const taken = await tx.ticket.count({ where: { eventId: event.id, status: { in: ["RESERVED", "SOLD"] } } });
+      const withDisplayUrl = withEventImageDisplayUrl({ ...event, taken, available: event.capacity - taken });
+      return withDisplayUrl;
+    }, { isolationLevel: "RepeatableRead" });
+    if (!result) return res.status(404).json({ error: "Event not found" });
+    return res.json(result);
   } catch (e) {
     next(e);
   }
-});
+}));
 
-eventsRouter.get("/:id/comments", async (req, res) => {
+eventsRouter.get("/:id/comments", asyncHandler(async (req, res) => {
   const eventId = req.params.id;
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
   if (!event) return res.status(404).json({ error: "Event not found" });
@@ -117,12 +125,12 @@ eventsRouter.get("/:id/comments", async (req, res) => {
     take: 200,
   });
   return res.json(list);
-});
+}));
 
 eventsRouter.post(
   "/:id/comments",
   authMiddleware,
-  async (req: express.Request & { user?: { userId: string } }, res) => {
+  asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
     const eventId = req.params.id;
     const parsed = createCommentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -147,13 +155,13 @@ eventsRouter.post(
     });
     await auditLog("COMMENT_CREATED", "EventComment", comment.id, req.user!.userId, JSON.stringify({ eventId }));
     return res.status(201).json(comment);
-  }
+  })
 );
 
 eventsRouter.delete(
   "/:id/comments/:commentId",
   authMiddleware,
-  async (req: express.Request & { user?: { userId: string; role: Role } }, res) => {
+  asyncHandler(async (req: express.Request & { user?: { userId: string; role: Role } }, res) => {
     const eventId = req.params.id;
     const commentId = req.params.commentId;
 
@@ -169,14 +177,14 @@ eventsRouter.delete(
     await prisma.eventComment.delete({ where: { id: commentId } });
     await auditLog("COMMENT_DELETED", "EventComment", commentId, req.user!.userId, JSON.stringify({ eventId }));
     return res.json({ message: "Comment deleted" });
-  }
+  })
 );
 
 eventsRouter.post(
   "/",
   authMiddleware,
   requireRole(Role.ARTIST),
-  async (req: express.Request & { user?: { userId: string } }, res, next) => {
+  asyncHandler(async (req: express.Request & { user?: { userId: string } }, res, next) => {
     try {
       const parsed = createEventSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -212,14 +220,14 @@ eventsRouter.post(
     } catch (e) {
       next(e);
     }
-  }
+  })
 );
 
 eventsRouter.get(
   "/my/requests",
   authMiddleware,
   requireRole(Role.ARTIST),
-  async (req: express.Request & { user?: { userId: string } }, res, next) => {
+  asyncHandler(async (req: express.Request & { user?: { userId: string } }, res, next) => {
     try {
       const list = await prisma.event.findMany({
         where: { artistId: req.user!.userId, status: "APPROVED" },
@@ -235,5 +243,5 @@ eventsRouter.get(
     } catch (e) {
       next(e);
     }
-  }
+  })
 );

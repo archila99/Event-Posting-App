@@ -1,8 +1,9 @@
+import { asyncHandler } from "../lib/asyncHandler.js";
 import express, { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware, requireEmailVerified } from "../middleware/auth.js";
-import { auditLog } from "../lib/audit.js";
+import { purchaseReservation } from "../services/bookingService.js";
 import bcrypt from "bcryptjs";
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
@@ -18,7 +19,7 @@ ticketsRouter.use((req, res, next) => {
   void requireEmailVerified(req, res, next).catch(next);
 });
 
-ticketsRouter.get("/my", async (req: express.Request & { user?: { userId: string } }, res) => {
+ticketsRouter.get("/my", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
   const list = await prisma.ticket.findMany({
     where: { userId: req.user!.userId, status: "SOLD" },
     include: {
@@ -36,9 +37,9 @@ ticketsRouter.get("/my", async (req: express.Request & { user?: { userId: string
     orderBy: { purchasedAt: "desc" },
   });
   return res.json(list);
-});
+}));
 
-ticketsRouter.post("/send-verification-code/:reservationId", async (req: express.Request & { user?: { userId: string } }, res) => {
+ticketsRouter.post("/send-verification-code/:reservationId", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
   const { reservationId } = req.params;
   const userId = req.user!.userId;
 
@@ -72,11 +73,11 @@ ticketsRouter.post("/send-verification-code/:reservationId", async (req: express
 
   // UI-delivery demo (no email): return preview to the client.
   return res.json({ message: "Verification code generated", codePreview: code, expiresInMinutes: VERIFICATION_CODE_EXPIRY_MINUTES });
-});
+}));
 
 const purchaseSchema = z.object({ code: z.string().length(6).optional() });
 
-ticketsRouter.post("/purchase/:reservationId", async (req: express.Request & { user?: { userId: string } }, res) => {
+ticketsRouter.post("/purchase/:reservationId", asyncHandler(async (req: express.Request & { user?: { userId: string } }, res) => {
   const { reservationId } = req.params;
   const userId = req.user!.userId;
 
@@ -84,113 +85,7 @@ ticketsRouter.post("/purchase/:reservationId", async (req: express.Request & { u
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid request", details: parsed.error.flatten() });
   }
-  const { code } = parsed.data;
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
-  const reservation = await prisma.reservation.findFirst({
-    where: { id: reservationId, userId, status: "ACTIVE" },
-    include: { event: true, tickets: true },
-  });
-
-  if (!reservation) {
-    return res.status(404).json({ error: "Reservation not found or expired" });
-  }
-  // Soft pre-check: authoritative expire/purchase decisions happen under FOR UPDATE below.
-  if (new Date() > reservation.expiresAt) {
-    const expiredOutcome = await prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ id: string; userId: string; status: string; expiresAt: Date }>>`
-        SELECT id, "userId", status, "expiresAt"
-        FROM "Reservation"
-        WHERE id = ${reservationId}
-        FOR UPDATE
-      `;
-      const row = locked[0];
-      if (!row || row.userId !== userId) return "NOT_FOUND" as const;
-      if (row.status === "EXPIRED") return "EXPIRED" as const;
-      if (row.status !== "ACTIVE") return "NOT_FOUND" as const;
-      if (!(new Date() > new Date(row.expiresAt))) return "STILL_ACTIVE" as const;
-
-      await tx.reservation.update({ where: { id: reservationId }, data: { status: "EXPIRED" } });
-      await tx.ticket.updateMany({ where: { reservationId }, data: { status: "EXPIRED" } });
-      return "EXPIRED" as const;
-    });
-    if (expiredOutcome === "NOT_FOUND") {
-      return res.status(404).json({ error: "Reservation not found or expired" });
-    }
-    if (expiredOutcome === "EXPIRED") {
-      return res.status(400).json({ error: "Reservation has expired" });
-    }
-    // STILL_ACTIVE: fall through to verification + locked purchase.
-  }
-
-  const isEmailVerified = !!user?.emailVerifiedAt;
-
-  if (!isEmailVerified) {
-    if (!code || code.length !== 6) {
-      return res.status(400).json({ error: "Verification code required. Request a code from the reservation page." });
-    }
-    const verification = await prisma.verificationCode.findUnique({
-      where: { reservationId },
-      include: { reservation: true },
-    });
-    if (!verification || verification.userId !== userId) {
-      return res.status(400).json({ error: "Verification code not found or invalid. Request a new code." });
-    }
-    if (new Date() > verification.expiresAt) {
-      await prisma.verificationCode.delete({ where: { reservationId } }).catch(() => {});
-      return res.status(400).json({ error: "Verification code has expired. Request a new code." });
-    }
-    const ok = await bcrypt.compare(code, verification.codeHash);
-    if (!ok) {
-      return res.status(400).json({ error: "Invalid verification code." });
-    }
-  }
-
-  const now = new Date();
-  try {
-    await prisma.$transaction(async (tx) => {
-      // Serialize purchase vs expiry decisions on this reservation row.
-      const locked = await tx.$queryRaw<Array<{ id: string; userId: string; status: string; expiresAt: Date }>>`
-        SELECT id, "userId", status, "expiresAt"
-        FROM "Reservation"
-        WHERE id = ${reservationId}
-        FOR UPDATE
-      `;
-      const row = locked[0];
-      if (!row || row.userId !== userId || row.status !== "ACTIVE") {
-        throw new Error("RESERVATION_NOT_FOUND");
-      }
-      if (new Date() > new Date(row.expiresAt)) {
-        await tx.reservation.update({ where: { id: reservationId }, data: { status: "EXPIRED" } });
-        await tx.ticket.updateMany({ where: { reservationId }, data: { status: "EXPIRED" } });
-        throw new Error("RESERVATION_EXPIRED");
-      }
-
-      await tx.verificationCode.delete({ where: { reservationId } }).catch(() => {});
-      await tx.reservation.update({
-        where: { id: reservationId },
-        data: { status: "CONVERTED" },
-      });
-      await tx.ticket.updateMany({
-        where: { reservationId },
-        data: { status: "SOLD", userId, purchasedAt: now },
-      });
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (message === "RESERVATION_EXPIRED") {
-      return res.status(400).json({ error: "Reservation has expired" });
-    }
-    if (message === "RESERVATION_NOT_FOUND") {
-      return res.status(404).json({ error: "Reservation not found or expired" });
-    }
-    throw err;
-  }
-
-  const tickets = await prisma.ticket.findMany({
-    where: { reservationId },
-    include: { event: { include: { location: true, timeSlot: true } } },
-  });
-  await auditLog("PURCHASE", "Reservation", reservationId, userId, JSON.stringify({ ticketIds: tickets.map((t) => t.id) }));
+  const tickets = await purchaseReservation(reservationId, userId);
   return res.json({ message: "Purchase confirmed", tickets });
-});
+}));

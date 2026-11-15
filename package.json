@@ -13,7 +13,11 @@
     "db:push": "cd backend && npx prisma db push",
     "db:seed": "cd backend && npx prisma db seed",
     "db:studio": "cd backend && npx prisma studio",
-    "postinstall": "cd backend && npm install && cd ../frontend && npm install"
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install",
+    "test": "npm --prefix backend run test",
+    "test:integration": "npm --prefix backend run test:integration",
+    "test:concurrency": "npm --prefix backend run test:concurrency",
+    "typecheck": "npm --prefix backend run typecheck"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

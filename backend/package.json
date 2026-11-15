@@ -16,7 +16,11 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "studio": "prisma studio",
-    "clear-auth": "tsx scripts/clear-auth-state.ts"
+    "clear-auth": "tsx scripts/clear-auth-state.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "node --import tsx --test tests/safety.test.ts",
+    "test:integration": "node scripts/run-db-tests.mjs",
+    "test:concurrency": "node scripts/run-db-tests.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

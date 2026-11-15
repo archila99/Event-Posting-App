@@ -1,3 +1,4 @@
+import { asyncHandler } from "../lib/asyncHandler.js";
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { authRouter } from "./auth.js";
@@ -22,7 +23,7 @@ apiRouter.use("/admin", adminRouter);
 
 apiRouter.get("/health", (_req, res) => res.json({ ok: true }));
 
-apiRouter.get("/health/db", async (_req, res) => {
+apiRouter.get("/health/db", asyncHandler(async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return res.json({ ok: true, db: "connected" });
@@ -30,7 +31,7 @@ apiRouter.get("/health/db", async (_req, res) => {
     console.error("[health/db]", e instanceof Error ? e.message : e);
     return res.status(503).json({ ok: false, db: "error", message: (e instanceof Error ? e.message : String(e)).slice(0, 100) });
   }
-});
+}));
 
 apiRouter.get("/health/storage", (_req, res) => {
   res.json({

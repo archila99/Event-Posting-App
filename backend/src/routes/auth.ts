@@ -1,3 +1,4 @@
+import { asyncHandler } from "../lib/asyncHandler.js";
 import express, { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -47,7 +48,7 @@ const loginSchema = z.object({
 
 export const authRouter = Router();
 
-authRouter.post("/refresh", async (req, res) => {
+authRouter.post("/refresh", asyncHandler(async (req, res) => {
   const raw = req.cookies?.[REFRESH_COOKIE_NAME];
   if (!raw || typeof raw !== "string") {
     clearRefreshTokenCookie(res);
@@ -109,9 +110,9 @@ authRouter.post("/refresh", async (req, res) => {
     clearRefreshTokenCookie(res);
     return res.status(401).json({ error: "Unauthorized" });
   }
-});
+}));
 
-authRouter.post("/logout", async (req, res) => {
+authRouter.post("/logout", asyncHandler(async (req, res) => {
   const raw = req.cookies?.[REFRESH_COOKIE_NAME];
   clearRefreshTokenCookie(res);
   if (raw && typeof raw === "string") {
@@ -122,10 +123,10 @@ authRouter.post("/logout", async (req, res) => {
     });
   }
   return res.json({ ok: true });
-});
+}));
 
 // --- SIGNUP: create pending verification session only (no User row) ---
-authRouter.post("/register", async (req, res, next) => {
+authRouter.post("/register", asyncHandler(async (req, res, next) => {
   try {
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -141,10 +142,10 @@ authRouter.post("/register", async (req, res, next) => {
     console.error("[register] error:", e instanceof Error ? e.message : e);
     next(e);
   }
-});
+}));
 
 // --- VERIFY OTP: create final User + issue JWT ---
-authRouter.post("/verify-otp", async (req, res, next) => {
+authRouter.post("/verify-otp", asyncHandler(async (req, res, next) => {
   try {
     const parsed = otpVerifySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -183,9 +184,9 @@ authRouter.post("/verify-otp", async (req, res, next) => {
     console.error("[verify-otp] error:", e instanceof Error ? e.message : e);
     next(e);
   }
-});
+}));
 
-authRouter.post("/login", async (req, res, next) => {
+authRouter.post("/login", asyncHandler(async (req, res, next) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -214,9 +215,9 @@ authRouter.post("/login", async (req, res, next) => {
     console.error("[login] error:", e instanceof Error ? e.message : e);
     next(e);
   }
-});
+}));
 
-authRouter.get("/me", authMiddleware, async (req: express.Request & { user?: AuthPayload }, res) => {
+authRouter.get("/me", authMiddleware, asyncHandler(async (req: express.Request & { user?: AuthPayload }, res) => {
   const u = req.user!;
   const user = await prisma.user.findUnique({
     where: { id: u.userId },
@@ -230,4 +231,4 @@ authRouter.get("/me", authMiddleware, async (req: express.Request & { user?: Aut
     ...rest,
     emailVerifiedAt: rest.emailVerifiedAt?.toISOString() ?? null,
   });
-});
+}));
